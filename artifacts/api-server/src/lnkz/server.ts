@@ -23,6 +23,7 @@ import { mountSurfaceRoutes } from "./surfaces.js";
 import { createLnkzMcpServer, LNKZ_VERSION } from "./mcp.js";
 import {
   appendMessagesSchema,
+  addMembershipSchema,
   auditSchema,
   conflictSchema,
   contextPacketSchema,
@@ -33,10 +34,11 @@ import {
   importSchema,
   listConversationsSchema,
   searchConversationsSchema,
+  updateMembershipSchema,
 } from "./schemas.js";
 import { aggregateSearch } from "./search.js";
 import { createRuntime } from "./runtime.js";
-import { resolveDatabaseUrl } from "./store/postgres.js";
+import { MembershipConflictError, PostgresConversationStore, resolveDatabaseUrl } from "./store/postgres.js";
 import type { PostgresRateLimiter } from "./store/rate-limit.js";
 import type { Conversation } from "./types.js";
 import { ZodError } from "zod";
@@ -147,6 +149,55 @@ app.get("/api/stats", requireApiKey, async (_request, response) => {
 app.get("/api/events", requireApiKey, async (request, response) => {
   const { limit } = auditSchema.parse({ limit: numberParam(request.query.limit, 50) });
   response.json({ events: await store.listEvents(limit) });
+});
+
+// ------------------------------------------------------------- workspace admin
+
+const requireWorkspaceAdmin = (request: express.Request, response: express.Response, next: express.NextFunction): void => {
+  authenticate(request, response, () => requireScope("admin")(request, response, next));
+};
+
+app.get("/api/admin/memberships", requireWorkspaceAdmin, async (request, response) => {
+  if (!(store instanceof PostgresConversationStore)) {
+    response.status(503).json({ error: "Workspace membership management requires Postgres." });
+    return;
+  }
+  try {
+    const includeInactive = request.query.includeInactive === "true";
+    response.json({ memberships: await store.listMemberships(includeInactive) });
+  } catch (error) {
+    membershipFailure(response, error);
+  }
+});
+
+app.post("/api/admin/memberships", requireWorkspaceAdmin, async (request, response) => {
+  if (!(store instanceof PostgresConversationStore)) {
+    response.status(503).json({ error: "Workspace membership management requires Postgres." });
+    return;
+  }
+  try {
+    const membership = await store.addMembership(addMembershipSchema.parse(request.body));
+    response.status(201).json({ membership });
+  } catch (error) {
+    membershipFailure(response, error);
+  }
+});
+
+app.patch("/api/admin/memberships", requireWorkspaceAdmin, async (request, response) => {
+  if (!(store instanceof PostgresConversationStore)) {
+    response.status(503).json({ error: "Workspace membership management requires Postgres." });
+    return;
+  }
+  try {
+    const membership = await store.updateMembership(updateMembershipSchema.parse(request.body));
+    if (!membership) {
+      response.status(404).json({ error: "Workspace membership not found." });
+      return;
+    }
+    response.json({ membership });
+  } catch (error) {
+    membershipFailure(response, error);
+  }
 });
 
 // ------------------------------------------------------------------ conversations
@@ -470,6 +521,14 @@ function badRequest(response: express.Response, error: unknown): void {
     return;
   }
   response.status(400).json({ error: "Invalid request." });
+}
+
+function membershipFailure(response: express.Response, error: unknown): void {
+  if (error instanceof MembershipConflictError) {
+    response.status(error.statusCode).json({ error: error.message });
+    return;
+  }
+  badRequest(response, error);
 }
 
 function isPayloadTooLarge(error: unknown): boolean {

@@ -3,7 +3,7 @@ import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { analyzeConversation } from "../intel/analyze.js";
 import { noRedaction, redactConversation } from "../intel/redact.js";
 import { conversationToMarkdown } from "./markdown.js";
-import { currentRequestContext, DEFAULT_WORKSPACE_ID } from "../context.js";
+import { currentRequestContext, DEFAULT_WORKSPACE_ID, type Scope } from "../context.js";
 import type { ConversationStore } from "./index.js";
 import type {
   AuditEvent,
@@ -23,8 +23,38 @@ import type {
   StoreStats,
 } from "../types.js";
 
-export const REQUIRED_POSTGRES_SCHEMA_VERSION = 3;
+export const REQUIRED_POSTGRES_SCHEMA_VERSION = 4;
 export { DEFAULT_WORKSPACE_ID };
+
+export interface WorkspaceMembership {
+  workspaceId: string;
+  issuer: string;
+  subject: string;
+  actorId: string;
+  scopes: Scope[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceMembershipInput {
+  issuer: string;
+  subject: string;
+  actorId?: string;
+  scopes: Scope[];
+}
+
+export interface WorkspaceMembershipPatch {
+  issuer: string;
+  subject: string;
+  actorId?: string;
+  scopes?: Scope[];
+  active?: boolean;
+}
+
+export class MembershipConflictError extends Error {
+  readonly statusCode = 409;
+}
 
 /**
  * The Postgres implementation deliberately keeps the ConversationStore
@@ -323,6 +353,91 @@ export class PostgresConversationStore implements ConversationStore {
     });
   }
 
+  async listMemberships(includeInactive = false): Promise<WorkspaceMembership[]> {
+    return this.transaction(async (client) => {
+      const result = await client.query<MembershipRow>(
+        `select workspace_id, issuer, subject, actor_id, scopes, active, created_at, updated_at
+           from workspace_memberships
+          where workspace_id = $1
+            and ($2::boolean or active)
+          order by active desc, created_at asc, issuer asc, subject asc`,
+        [this.activeWorkspaceId(), includeInactive],
+      );
+      return result.rows.map(rowToMembership);
+    });
+  }
+
+  async addMembership(input: WorkspaceMembershipInput): Promise<WorkspaceMembership> {
+    return this.transaction(async (client) => {
+      const existing = await this.findMembership(client, input.issuer, input.subject);
+      const active = true;
+      await this.ensureAdminRemains(client, input.issuer, input.subject, active, input.scopes);
+      const result = await client.query<MembershipRow>(
+        `insert into workspace_memberships
+          (workspace_id, issuer, subject, actor_id, scopes, active, updated_at)
+         values ($1, $2, $3, $4, $5, true, now())
+         on conflict (workspace_id, issuer, subject) do update set
+           actor_id = excluded.actor_id,
+           scopes = excluded.scopes,
+           active = true,
+           updated_at = now()
+         returning workspace_id, issuer, subject, actor_id, scopes, active, created_at, updated_at`,
+        [
+          this.activeWorkspaceId(),
+          input.issuer,
+          input.subject,
+          input.actorId ?? input.subject,
+          input.scopes,
+        ],
+      );
+      const membership = rowToMembership(result.rows[0]!);
+      await this.recordEventWithClient(client, {
+        kind: existing ? "workspace_membership.updated" : "workspace_membership.created",
+        detail: {
+          membership: membershipAuditDetail(membership),
+          previous: existing ? membershipAuditDetail(existing) : undefined,
+        },
+      });
+      return membership;
+    });
+  }
+
+  async updateMembership(input: WorkspaceMembershipPatch): Promise<WorkspaceMembership | null> {
+    return this.transaction(async (client) => {
+      const existing = await this.findMembership(client, input.issuer, input.subject);
+      if (!existing) return null;
+      const active = input.active ?? existing.active;
+      const scopes = input.scopes ?? existing.scopes;
+      await this.ensureAdminRemains(client, input.issuer, input.subject, active, scopes);
+      const result = await client.query<MembershipRow>(
+        `update workspace_memberships
+            set actor_id = coalesce($4::text, actor_id),
+                scopes = coalesce($5::text[], scopes),
+                active = coalesce($6::boolean, active),
+                updated_at = now()
+          where workspace_id = $1 and issuer = $2 and subject = $3
+         returning workspace_id, issuer, subject, actor_id, scopes, active, created_at, updated_at`,
+        [
+          this.activeWorkspaceId(),
+          input.issuer,
+          input.subject,
+          input.actorId ?? null,
+          input.scopes ?? null,
+          input.active ?? null,
+        ],
+      );
+      const membership = rowToMembership(result.rows[0]!);
+      await this.recordEventWithClient(client, {
+        kind: membership.active ? "workspace_membership.updated" : "workspace_membership.deactivated",
+        detail: {
+          membership: membershipAuditDetail(membership),
+          previous: membershipAuditDetail(existing),
+        },
+      });
+      return membership;
+    });
+  }
+
   async stats(): Promise<StoreStats> {
     return this.transaction(async (client) => {
       const conversations = await client.query<{ total: string }>("select count(*)::text as total from conversations");
@@ -485,6 +600,38 @@ export class PostgresConversationStore implements ConversationStore {
     );
   }
 
+  private async findMembership(client: PoolClient, issuer: string, subject: string): Promise<WorkspaceMembership | null> {
+    const result = await client.query<MembershipRow>(
+      `select workspace_id, issuer, subject, actor_id, scopes, active, created_at, updated_at
+         from workspace_memberships
+        where workspace_id = $1 and issuer = $2 and subject = $3`,
+      [this.activeWorkspaceId(), issuer, subject],
+    );
+    return result.rows[0] ? rowToMembership(result.rows[0]) : null;
+  }
+
+  private async ensureAdminRemains(
+    client: PoolClient,
+    issuer: string,
+    subject: string,
+    active: boolean,
+    scopes: Scope[],
+  ): Promise<void> {
+    if (active && scopes.includes("admin")) return;
+    const result = await client.query<{ total: string }>(
+      `select count(*)::text as total
+         from workspace_memberships
+        where workspace_id = $1
+          and active
+          and 'admin' = any(scopes)
+          and not (issuer = $2 and subject = $3)`,
+      [this.activeWorkspaceId(), issuer, subject],
+    );
+    if (Number(result.rows[0]?.total ?? 0) === 0) {
+      throw new MembershipConflictError("Workspace must retain at least one active admin.");
+    }
+  }
+
   private async messageCount(client: PoolClient, conversationId: string): Promise<number> {
     const result = await client.query<{ total: string }>(
       "select count(*)::text as total from messages where conversation_id = $1",
@@ -568,6 +715,17 @@ interface EventRow extends QueryResultRow {
   detail_json: unknown;
 }
 
+interface MembershipRow extends QueryResultRow {
+  workspace_id: string;
+  issuer: string;
+  subject: string;
+  actor_id: string;
+  scopes: string[];
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 interface SearchRow extends QueryResultRow {
   id: string;
   score: number;
@@ -595,6 +753,29 @@ function rowToConversation(row: ConversationRow, messages: MessageRow[]): Conver
       createdAt: message.created_at,
       metadata: message.metadata_json ? parseJson(message.metadata_json) : undefined,
     })),
+  };
+}
+
+function rowToMembership(row: MembershipRow): WorkspaceMembership {
+  return {
+    workspaceId: row.workspace_id,
+    issuer: row.issuer,
+    subject: row.subject,
+    actorId: row.actor_id,
+    scopes: row.scopes.filter((scope): scope is Scope => ["mcp", "read", "write", "admin"].includes(scope)),
+    active: row.active,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function membershipAuditDetail(membership: WorkspaceMembership): Record<string, unknown> {
+  return {
+    issuer: membership.issuer,
+    subject: membership.subject,
+    actorId: membership.actorId,
+    scopes: membership.scopes,
+    active: membership.active,
   };
 }
 

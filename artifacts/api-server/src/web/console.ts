@@ -1,16 +1,17 @@
 import { BRAND } from "./branding";
-import { client, getApiKey, setApiKey, type ConversationSummary, type HandoffSummary } from "./api";
+import { client, getApiKey, setApiKey, type ConversationSummary, type HandoffSummary, type WorkspaceMembership } from "./api";
 import { icon } from "./icons";
 import "./styles.css";
 import "./console.css";
 
-type TabId = "import" | "library" | "packet" | "handoffs" | "status";
+type TabId = "import" | "library" | "packet" | "handoffs" | "status" | "team";
 const tabs: { id: TabId; label: string; icon: string }[] = [
   { id: "import", label: "Import", icon: "inbox" },
   { id: "library", label: "Library", icon: "message" },
   { id: "packet", label: "Context packet", icon: "braces" },
   { id: "handoffs", label: "Handoffs", icon: "key" },
   { id: "status", label: "Status", icon: "network" },
+  { id: "team", label: "Team access", icon: "network" },
 ];
 const state: { tab: TabId; selected: string | null } = { tab: "import", selected: null };
 const app = document.getElementById("app")!;
@@ -32,6 +33,7 @@ function selectTab(tab: TabId): void {
   if (tab === "packet") renderPacket();
   if (tab === "handoffs") void renderHandoffs();
   if (tab === "status") void renderStatus();
+  if (tab === "team") void renderTeam();
 }
 
 function renderImport(): void {
@@ -140,6 +142,88 @@ async function renderStatus(): Promise<void> {
     const [{ stats }, { connectors }] = await Promise.all([client.stats(), client.connectors()]);
     document.getElementById("status-content")!.innerHTML = `<div class="stats-grid">${Object.entries(stats).filter(([, value]) => typeof value === "number").map(([key, value]) => `<div class="stat"><strong>${value}</strong><span>${key.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</span></div>`).join("")}</div><h3>Connectors</h3><div class="connector-status">${connectors.map((connector) => `<div><span class="status-dot ${connector.configured ? "ready" : ""}"></span><strong>${escape(connector.label)}</strong><span>${escape(connector.detail)}</span></div>`).join("")}</div>`;
   } catch (error) { document.getElementById("status-content")!.innerHTML = `<p class="error">${escape(messageOf(error))}</p>`; }
+}
+
+async function renderTeam(): Promise<void> {
+  panel.innerHTML = `<section class="card"><div class="section-heading"><div><h2>Team access</h2><p class="hint">Add provider identities, control their scopes, and deactivate access without touching the database.</p></div><span class="status-pill active">Admin only</span></div><form id="membership-add-form" class="membership-add"><div class="row"><label>Issuer<input id="membership-issuer" type="url" required placeholder="https://replit.com/oidc" /></label><label>Provider subject<input id="membership-subject" type="text" required placeholder="The provider subject identifier" /></label></div><fieldset class="scope-list"><legend>Scopes</legend>${scopeCheckboxes("add-scope", ["read", "write"])}</fieldset><div class="actions"><button class="button primary" type="submit">Add membership ${icon("arrow", 16)}</button></div></form><div id="membership-result" class="result" hidden></div><div id="membership-list" class="table-wrap"><p class="hint">Loading memberships…</p></div></section>`;
+  const addForm = document.getElementById("membership-add-form")!;
+  addForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void addMembership();
+  });
+  try {
+    const { memberships } = await client.listMemberships(true);
+    renderMembershipList(memberships);
+  } catch (error) {
+    document.getElementById("membership-list")!.innerHTML = `<p class="hint">${escape(messageOf(error))}</p>`;
+  }
+}
+
+function renderMembershipList(memberships: WorkspaceMembership[]): void {
+  const list = document.getElementById("membership-list")!;
+  if (!memberships.length) {
+    list.innerHTML = `<p class="empty-state">No memberships yet. Add a provider subject above to grant workspace access.</p>`;
+    return;
+  }
+  list.innerHTML = `<table class="table membership-table"><thead><tr><th>Provider subject</th><th>Actor</th><th>Scopes</th><th>Status</th><th>Actions</th></tr></thead><tbody>${memberships.map((membership, index) => membershipRow(membership, index)).join("")}</tbody></table>`;
+  memberships.forEach((membership, index) => {
+    const row = document.querySelector<HTMLElement>(`[data-membership-index="${index}"]`)!;
+    row.querySelector<HTMLButtonElement>(".membership-save")?.addEventListener("click", () => void updateMembership(membership, row));
+    row.querySelector<HTMLButtonElement>(".membership-deactivate")?.addEventListener("click", () => void setMembershipActive(membership, false));
+    row.querySelector<HTMLButtonElement>(".membership-reactivate")?.addEventListener("click", () => void setMembershipActive(membership, true));
+  });
+}
+
+function membershipRow(membership: WorkspaceMembership, index: number): string {
+  const scopes = ["read", "write", "mcp", "admin"] as const;
+  return `<tr class="membership-row" data-membership-index="${index}"><td><strong>${escape(membership.subject)}</strong><span class="snippet">${escape(membership.issuer)}</span></td><td>${escape(membership.actorId)}</td><td><div class="scope-list compact">${scopes.map((scope) => `<label class="scope-option"><input class="scope-checkbox" type="checkbox" value="${scope}" ${membership.scopes.includes(scope) ? "checked" : ""} ${membership.active ? "" : "disabled"} />${scope}</label>`).join("")}</div></td><td><span class="status-pill ${membership.active ? "active" : "inactive"}">${membership.active ? "Active" : "Inactive"}</span></td><td><div class="membership-actions">${membership.active ? `<button class="button secondary small membership-save" type="button">Save scopes</button><button class="button danger small membership-deactivate" type="button">Deactivate</button>` : `<button class="button secondary small membership-reactivate" type="button">Reactivate</button>`}</div></td></tr>`;
+}
+
+async function addMembership(): Promise<void> {
+  const issuer = (document.getElementById("membership-issuer") as HTMLInputElement).value.trim();
+  const subject = (document.getElementById("membership-subject") as HTMLInputElement).value.trim();
+  const scopes = selectedScopes("add-scope");
+  try {
+    await client.addMembership({ issuer, subject, scopes });
+    notify("Membership added.");
+    void renderTeam();
+  } catch (error) {
+    notify(messageOf(error), true);
+  }
+}
+
+async function updateMembership(membership: WorkspaceMembership, row: HTMLElement): Promise<void> {
+  const scopes = [...row.querySelectorAll<HTMLInputElement>(".scope-checkbox:checked")].map((input) => input.value) as WorkspaceMembership["scopes"];
+  if (!scopes.length) {
+    notify("Select at least one scope.", true);
+    return;
+  }
+  try {
+    await client.updateMembership({ issuer: membership.issuer, subject: membership.subject, scopes });
+    notify("Membership scopes updated.");
+    void renderTeam();
+  } catch (error) {
+    notify(messageOf(error), true);
+  }
+}
+
+async function setMembershipActive(membership: WorkspaceMembership, active: boolean): Promise<void> {
+  if (!active && !window.confirm(`Deactivate access for ${membership.subject}?`)) return;
+  try {
+    await client.updateMembership({ issuer: membership.issuer, subject: membership.subject, active });
+    notify(active ? "Membership reactivated." : "Membership deactivated.");
+    void renderTeam();
+  } catch (error) {
+    notify(messageOf(error), true);
+  }
+}
+
+function selectedScopes(prefix: string): WorkspaceMembership["scopes"] {
+  return [...document.querySelectorAll<HTMLInputElement>(`input[name="${prefix}"]:checked`)].map((input) => input.value) as WorkspaceMembership["scopes"];
+}
+
+function scopeCheckboxes(name: string, selected: string[]): string {
+  return (["read", "write", "mcp", "admin"] as const).map((scope) => `<label class="scope-option"><input type="checkbox" name="${name}" value="${scope}" ${selected.includes(scope) ? "checked" : ""} />${scope}</label>`).join("");
 }
 
 function claimList(title: string, claims: { text: string }[]): string {

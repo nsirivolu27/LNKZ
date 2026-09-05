@@ -150,13 +150,25 @@ export class ManagedAuthService implements ManagedAuthenticator {
     const session = result.rows[0];
     if (!session) return null;
 
-    const membership = await this.pool.query<{ actor_id: string; scopes: string[] }>(
-      `select actor_id, scopes
-         from workspace_memberships
-        where workspace_id = $1 and issuer = $2 and subject = $3 and active`,
-      [this.config.workspaceId, session.issuer, session.subject],
-    );
-    const row = membership.rows[0];
+    const client = await this.pool.connect();
+    let row: { actor_id: string; scopes: string[] } | undefined;
+    try {
+      await client.query("begin");
+      await client.query("select set_config('app.workspace_id', $1, true)", [this.config.workspaceId]);
+      const membership = await client.query<{ actor_id: string; scopes: string[] }>(
+        `select actor_id, scopes
+           from workspace_memberships
+          where workspace_id = $1 and issuer = $2 and subject = $3 and active`,
+        [this.config.workspaceId, session.issuer, session.subject],
+      );
+      row = membership.rows[0];
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
     if (!row) {
       const error = new Error("Your account is authenticated but is not a member of this workspace.") as Error & { statusCode: number };
       error.statusCode = 403;

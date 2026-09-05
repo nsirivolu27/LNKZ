@@ -105,6 +105,17 @@ export interface Stats {
   events: number;
 }
 
+export interface WorkspaceMembership {
+  workspaceId: string;
+  issuer: string;
+  subject: string;
+  actorId: string;
+  scopes: ("mcp" | "read" | "write" | "admin")[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Packet {
   budgetTokens: number;
   usedTokens: number;
@@ -140,4 +151,21 @@ export const client = {
     api<{ packet: Packet }>("/api/context/packet", { method: "POST", body: JSON.stringify(body) }),
   connectors: () => api<{ connectors: ConnectorStatus[] }>("/api/connectors"),
   stats: () => api<{ stats: Stats }>("/api/stats"),
+  listMemberships: (includeInactive = false) =>
+    api<{ memberships: WorkspaceMembership[] }>(`/api/admin/memberships?includeInactive=${includeInactive}`),
+  addMembership: (body: { issuer: string; subject: string; scopes: WorkspaceMembership["scopes"] }) =>
+    api<{ membership: WorkspaceMembership }>("/api/admin/memberships", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateMembership: (body: {
+    issuer: string;
+    subject: string;
+    scopes?: WorkspaceMembership["scopes"];
+    active?: boolean;
+  }) =>
+    api<{ membership: WorkspaceMembership }>("/api/admin/memberships", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 };

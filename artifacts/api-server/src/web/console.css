@@ -2,6 +2,16 @@
 .auth-actions > .button { white-space: nowrap; text-decoration: none; }
 body:has(#app) { background: linear-gradient(180deg, #f6f4ef 0%, #fbfaf7 60%, #eef3ee 100%); }
 #app { width: min(1240px, calc(100% - 40px)); margin: 0 auto; padding-bottom: 64px; }
+.section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.membership-add { border-top: 1px solid var(--line); padding-top: 18px; }
+.scope-list { display: flex; flex-wrap: wrap; gap: 8px 14px; border: 0; padding: 0; margin: 10px 0 0; }
+.scope-list legend { color: var(--muted); font-size: .83rem; font-weight: 650; margin-bottom: 7px; }
+.scope-list.compact { margin: 0; gap: 5px 8px; }
+.scope-option { flex-direction: row; align-items: center; gap: 5px; font-size: .78rem; font-weight: 600; }
+.membership-table td:first-child { min-width: 180px; }
+.membership-table .snippet { display: block; margin-top: 3px; }
+.membership-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.empty-state { padding: 24px 0; color: var(--muted); }
 .console-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px 0 14px; flex-wrap: wrap; }
 .key-field { display: grid; grid-template-columns: auto minmax(220px, 320px); align-items: center; gap: 4px 10px; }.key-field label { color: var(--muted); font-size: .8rem; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }.key-field input { width: 100%; }.key-field small { grid-column: 2; color: var(--muted); font-size: .72rem; }
 .console-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.6); }.console-tab { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 10px; padding: 10px 14px; background: transparent; color: #55625d; font: inherit; font-weight: 700; cursor: pointer; }.console-tab:hover { background: rgba(18,32,28,.06); color: var(--ink); }.console-tab.active { background: var(--ink); color: var(--lime); }

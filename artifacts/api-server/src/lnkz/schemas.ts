@@ -122,3 +122,23 @@ export const duplicateSchema = z.object({
 export const auditSchema = z.object({
   limit: z.number().int().min(1).max(500).default(50),
 });
+
+export const membershipScopeSchema = z.enum(["mcp", "read", "write", "admin"]);
+
+const membershipIdentitySchema = z.object({
+  issuer: z.string().trim().min(1).max(500),
+  subject: z.string().trim().min(1).max(500),
+});
+
+export const addMembershipSchema = membershipIdentitySchema.extend({
+  actorId: z.string().trim().min(1).max(200).optional(),
+  scopes: z.array(membershipScopeSchema).min(1).max(4).default(["read", "write"]),
+});
+
+export const updateMembershipSchema = membershipIdentitySchema.extend({
+  actorId: z.string().trim().min(1).max(200).optional(),
+  scopes: z.array(membershipScopeSchema).min(1).max(4).optional(),
+  active: z.boolean().optional(),
+}).refine((value) => value.actorId !== undefined || value.scopes !== undefined || value.active !== undefined, {
+  message: "Provide actorId, scopes, or active.",
+});
