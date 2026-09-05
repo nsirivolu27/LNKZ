@@ -116,6 +116,29 @@ export interface WorkspaceMembership {
   updatedAt: string;
 }
 
+export interface MembershipAuditEvent {
+  id: string;
+  at: string;
+  kind: "workspace_membership.created" | "workspace_membership.updated" | "workspace_membership.deactivated";
+  actorId?: string;
+  detail?: {
+    membership: {
+      issuer: string;
+      subject: string;
+      actorId: string;
+      scopes: WorkspaceMembership["scopes"];
+      active: boolean;
+    };
+    previous?: {
+      issuer: string;
+      subject: string;
+      actorId: string;
+      scopes: WorkspaceMembership["scopes"];
+      active: boolean;
+    };
+  };
+}
+
 export interface Packet {
   budgetTokens: number;
   usedTokens: number;
@@ -153,6 +176,8 @@ export const client = {
   stats: () => api<{ stats: Stats }>("/api/stats"),
   listMemberships: (includeInactive = false) =>
     api<{ memberships: WorkspaceMembership[] }>(`/api/admin/memberships?includeInactive=${includeInactive}`),
+  listMembershipEvents: (limit = 50) =>
+    api<{ events: MembershipAuditEvent[] }>(`/api/admin/membership-events?limit=${limit}`),
   addMembership: (body: { issuer: string; subject: string; scopes: WorkspaceMembership["scopes"] }) =>
     api<{ membership: WorkspaceMembership }>("/api/admin/memberships", {
       method: "POST",

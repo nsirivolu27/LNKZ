@@ -1,5 +1,5 @@
 import { BRAND } from "./branding";
-import { client, getApiKey, setApiKey, type ConversationSummary, type HandoffSummary, type WorkspaceMembership } from "./api";
+import { client, getApiKey, setApiKey, type ConversationSummary, type HandoffSummary, type MembershipAuditEvent, type WorkspaceMembership } from "./api";
 import { icon } from "./icons";
 import "./styles.css";
 import "./console.css";
@@ -145,17 +145,22 @@ async function renderStatus(): Promise<void> {
 }
 
 async function renderTeam(): Promise<void> {
-  panel.innerHTML = `<section class="card"><div class="section-heading"><div><h2>Team access</h2><p class="hint">Add provider identities, control their scopes, and deactivate access without touching the database.</p></div><span class="status-pill active">Admin only</span></div><form id="membership-add-form" class="membership-add"><div class="row"><label>Issuer<input id="membership-issuer" type="url" required placeholder="https://replit.com/oidc" /></label><label>Provider subject<input id="membership-subject" type="text" required placeholder="The provider subject identifier" /></label></div><fieldset class="scope-list"><legend>Scopes</legend>${scopeCheckboxes("add-scope", ["read", "write"])}</fieldset><div class="actions"><button class="button primary" type="submit">Add membership ${icon("arrow", 16)}</button></div></form><div id="membership-result" class="result" hidden></div><div id="membership-list" class="table-wrap"><p class="hint">Loading memberships…</p></div></section>`;
+  panel.innerHTML = `<section class="card"><div class="section-heading"><div><h2>Team access</h2><p class="hint">Add provider identities, control their scopes, and deactivate access without touching the database.</p></div><span class="status-pill active">Admin only</span></div><form id="membership-add-form" class="membership-add"><div class="row"><label>Issuer<input id="membership-issuer" type="url" required placeholder="https://replit.com/oidc" /></label><label>Provider subject<input id="membership-subject" type="text" required placeholder="The provider subject identifier" /></label></div><fieldset class="scope-list"><legend>Scopes</legend>${scopeCheckboxes("add-scope", ["read", "write"])}</fieldset><div class="actions"><button class="button primary" type="submit">Add membership ${icon("arrow", 16)}</button></div></form><div id="membership-result" class="result" hidden></div><div id="membership-list" class="table-wrap"><p class="hint">Loading memberships…</p></div></section><section class="card membership-history"><div class="section-heading"><div><h2>Membership history</h2><p class="hint">Review who changed access, which provider subject was affected, and how scopes or status changed.</p></div><span class="status-pill active">Workspace scoped</span></div><div id="membership-history-list" class="table-wrap"><p class="hint">Loading history…</p></div></section>`;
   const addForm = document.getElementById("membership-add-form")!;
   addForm.addEventListener("submit", (event) => {
     event.preventDefault();
     void addMembership();
   });
   try {
-    const { memberships } = await client.listMemberships(true);
+    const [{ memberships }, { events }] = await Promise.all([
+      client.listMemberships(true),
+      client.listMembershipEvents(),
+    ]);
     renderMembershipList(memberships);
+    renderMembershipHistory(events);
   } catch (error) {
     document.getElementById("membership-list")!.innerHTML = `<p class="hint">${escape(messageOf(error))}</p>`;
+    document.getElementById("membership-history-list")!.innerHTML = `<p class="hint">${escape(messageOf(error))}</p>`;
   }
 }
 
@@ -177,6 +182,37 @@ function renderMembershipList(memberships: WorkspaceMembership[]): void {
 function membershipRow(membership: WorkspaceMembership, index: number): string {
   const scopes = ["read", "write", "mcp", "admin"] as const;
   return `<tr class="membership-row" data-membership-index="${index}"><td><strong>${escape(membership.subject)}</strong><span class="snippet">${escape(membership.issuer)}</span></td><td>${escape(membership.actorId)}</td><td><div class="scope-list compact">${scopes.map((scope) => `<label class="scope-option"><input class="scope-checkbox" type="checkbox" value="${scope}" ${membership.scopes.includes(scope) ? "checked" : ""} ${membership.active ? "" : "disabled"} />${scope}</label>`).join("")}</div></td><td><span class="status-pill ${membership.active ? "active" : "inactive"}">${membership.active ? "Active" : "Inactive"}</span></td><td><div class="membership-actions">${membership.active ? `<button class="button secondary small membership-save" type="button">Save scopes</button><button class="button danger small membership-deactivate" type="button">Deactivate</button>` : `<button class="button secondary small membership-reactivate" type="button">Reactivate</button>`}</div></td></tr>`;
+}
+
+function renderMembershipHistory(events: MembershipAuditEvent[]): void {
+  const list = document.getElementById("membership-history-list")!;
+  if (!events.length) {
+    list.innerHTML = `<p class="empty-state">No membership changes have been recorded yet.</p>`;
+    return;
+  }
+  list.innerHTML = `<table class="table membership-history-table"><thead><tr><th>Changed</th><th>Action</th><th>Acting admin</th><th>Provider subject</th><th>Scopes</th><th>Status transition</th></tr></thead><tbody>${events.map(membershipHistoryRow).join("")}</tbody></table>`;
+}
+
+function membershipHistoryRow(event: MembershipAuditEvent): string {
+  const current = event.detail?.membership;
+  if (!current) return "";
+  const previous = event.detail?.previous;
+  const action = event.kind === "workspace_membership.created"
+    ? "Membership created"
+    : event.kind === "workspace_membership.deactivated"
+      ? "Membership deactivated"
+      : "Membership updated";
+  const currentScopes = current.scopes.join(", ") || "None";
+  const previousScopes = previous?.scopes.join(", ");
+  const scopes = previousScopes && previousScopes !== currentScopes
+    ? `<strong>${escape(currentScopes)}</strong><span class="snippet">from ${escape(previousScopes)}</span>`
+    : `<strong>${escape(currentScopes)}</strong>`;
+  const previousStatus = previous ? membershipStatus(previous.active) : "—";
+  return `<tr><td>${date(event.at)}</td><td>${action}</td><td>${escape(event.actorId || "System")}</td><td><strong>${escape(current.subject)}</strong><span class="snippet">${escape(current.issuer)}</span></td><td>${scopes}</td><td>${escape(previousStatus)} → ${escape(membershipStatus(current.active))}</td></tr>`;
+}
+
+function membershipStatus(active: boolean): string {
+  return active ? "Active" : "Inactive";
 }
 
 async function addMembership(): Promise<void> {

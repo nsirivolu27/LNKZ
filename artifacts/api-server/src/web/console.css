@@ -11,6 +11,9 @@ body:has(#app) { background: linear-gradient(180deg, #f6f4ef 0%, #fbfaf7 60%, #e
 .membership-table td:first-child { min-width: 180px; }
 .membership-table .snippet { display: block; margin-top: 3px; }
 .membership-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.membership-history { margin-top: 18px; }
+.membership-history-table td:nth-child(4) { min-width: 190px; }
+.membership-history-table td:nth-child(5) strong, .membership-history-table td:nth-child(5) .snippet { display: block; }
 .empty-state { padding: 24px 0; color: var(--muted); }
 .console-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px 0 14px; flex-wrap: wrap; }
 .key-field { display: grid; grid-template-columns: auto minmax(220px, 320px); align-items: center; gap: 4px 10px; }.key-field label { color: var(--muted); font-size: .8rem; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }.key-field input { width: 100%; }.key-field small { grid-column: 2; color: var(--muted); font-size: .72rem; }

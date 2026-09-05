@@ -112,6 +112,12 @@ test("Postgres workspace membership mutations preserve access rules and audit hi
 
       const unchangedAdmin = (await store!.listMemberships()).find(({ subject }) => subject === "admin-subject");
       assertMembership(unchangedAdmin, { subject: "admin-subject", actorId: "admin-actor", scopes: ["admin", "read"], active: true });
+
+      await store!.recordEvent({ kind: "conversation.saved", conversationId: randomUUID() });
+      const membershipEvents = await store!.listMembershipEvents(100);
+      assert.ok(membershipEvents.length >= 5);
+      assert.ok(membershipEvents.every((event) => event.kind.startsWith("workspace_membership.")));
+      assert.ok(membershipEvents.every((event) => event.actorId === "workspace-admin"));
     });
   } finally {
     await pool.query("delete from workspaces where id = $1", [workspaceId]).catch(() => undefined);

@@ -353,6 +353,29 @@ export class PostgresConversationStore implements ConversationStore {
     });
   }
 
+  async listMembershipEvents(limit: number): Promise<AuditEvent[]> {
+    return this.transaction(async (client) => {
+      const result = await client.query<EventRow>(
+        `select id, at, kind, actor_id, conversation_id, handoff_id, detail_json
+           from events
+          where workspace_id = $1
+            and kind in ('workspace_membership.created', 'workspace_membership.updated', 'workspace_membership.deactivated')
+          order by at desc, id desc
+          limit $2`,
+        [this.activeWorkspaceId(), boundedLimit(limit, 500)],
+      );
+      return result.rows.map((row) => ({
+        id: row.id,
+        at: row.at,
+        kind: row.kind,
+        actorId: row.actor_id ?? undefined,
+        conversationId: row.conversation_id ?? undefined,
+        handoffId: row.handoff_id ?? undefined,
+        detail: row.detail_json ? parseJson<Record<string, unknown>>(row.detail_json) : undefined,
+      }));
+    });
+  }
+
   async listMemberships(includeInactive = false): Promise<WorkspaceMembership[]> {
     return this.transaction(async (client) => {
       const result = await client.query<MembershipRow>(

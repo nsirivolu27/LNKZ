@@ -172,6 +172,19 @@ app.get("/api/admin/memberships", requireWorkspaceAdmin, async (request, respons
   }
 });
 
+app.get("/api/admin/membership-events", requireWorkspaceAdmin, async (request, response) => {
+  if (!(store instanceof PostgresConversationStore)) {
+    response.status(503).json({ error: "Workspace membership history requires Postgres." });
+    return;
+  }
+  try {
+    const { limit } = auditSchema.parse({ limit: numberParam(request.query.limit, 50) });
+    response.json({ events: await store.listMembershipEvents(limit) });
+  } catch (error) {
+    membershipFailure(response, error);
+  }
+});
+
 app.post("/api/admin/memberships", requireWorkspaceAdmin, async (request, response) => {
   if (!(store instanceof PostgresConversationStore)) {
     response.status(503).json({ error: "Workspace membership management requires Postgres." });
