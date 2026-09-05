@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
-import { rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -113,6 +113,37 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+
+  await buildWeb();
+}
+
+async function buildWeb() {
+  const sourceDir = path.resolve(artifactDir, "src", "web");
+  const webDistDir = path.resolve(artifactDir, "web-dist");
+  const assetDir = path.resolve(webDistDir, "assets");
+  await rm(webDistDir, { recursive: true, force: true });
+  await mkdir(assetDir, { recursive: true });
+
+  await esbuild({
+    entryPoints: [path.resolve(sourceDir, "main.ts"), path.resolve(sourceDir, "console.ts")],
+    bundle: true,
+    format: "esm",
+    splitting: true,
+    outdir: assetDir,
+    entryNames: "[name]",
+    chunkNames: "chunks/[name]-[hash]",
+    minify: true,
+    logLevel: "info",
+  });
+
+  const branding = JSON.parse(await readFile(path.resolve(sourceDir, "branding.json"), "utf8"));
+  const replaceBranding = (html) => html
+    .replaceAll("__PRODUCT_NAME__", branding.productName)
+    .replaceAll("__DESCRIPTOR__", branding.descriptor);
+  const indexTemplate = await readFile(path.resolve(sourceDir, "index.html"), "utf8");
+  const consoleTemplate = await readFile(path.resolve(sourceDir, "console.html"), "utf8");
+  await writeFile(path.resolve(webDistDir, "index.html"), replaceBranding(indexTemplate));
+  await writeFile(path.resolve(webDistDir, "console.html"), replaceBranding(consoleTemplate));
 }
 
 buildAll().catch((err) => {
