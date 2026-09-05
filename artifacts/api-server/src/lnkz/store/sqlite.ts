@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { analyzeConversation } from "../intel/analyze.js";
 import { noRedaction, redactConversation } from "../intel/redact.js";
 import { conversationToMarkdown } from "./markdown.js";
+import { currentRequestContext } from "../context.js";
 import type { ConversationStore } from "./index.js";
 import type {
   AuditEvent,
@@ -24,7 +25,7 @@ import type {
   StoreStats,
 } from "../types.js";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE conversations (
@@ -83,6 +84,7 @@ CREATE TABLE events (
   id              TEXT PRIMARY KEY,
   at              TEXT NOT NULL,
   kind            TEXT NOT NULL,
+  actor_id        TEXT,
   conversation_id TEXT,
   handoff_id      TEXT,
   detail_json     TEXT
@@ -114,8 +116,10 @@ export class SqliteConversationStore implements ConversationStore {
     if (current >= SCHEMA_VERSION) return;
     if (current === 0) {
       this.db.exec(SCHEMA);
-      this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    } else {
+      this.db.exec("ALTER TABLE events ADD COLUMN actor_id TEXT");
     }
+    this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
   /**
@@ -376,6 +380,7 @@ export class SqliteConversationStore implements ConversationStore {
       id: row.id,
       at: row.at,
       kind: row.kind,
+      actorId: row.actor_id ?? undefined,
       conversationId: row.conversation_id ?? undefined,
       handoffId: row.handoff_id ?? undefined,
       detail: row.detail_json ? (JSON.parse(row.detail_json) as Record<string, unknown>) : undefined,
@@ -501,12 +506,13 @@ export class SqliteConversationStore implements ConversationStore {
 
   private recordEventSync(event: Omit<AuditEvent, "id" | "at"> & { at?: string }): void {
     this.db.prepare(`
-      INSERT INTO events (id, at, kind, conversation_id, handoff_id, detail_json)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO events (id, at, kind, actor_id, conversation_id, handoff_id, detail_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
       randomUUID(),
       event.at ?? new Date().toISOString(),
       event.kind,
+      currentRequestContext()?.actorId ?? null,
       event.conversationId ?? null,
       event.handoffId ?? null,
       event.detail ? JSON.stringify(event.detail) : null,
@@ -557,6 +563,7 @@ interface EventRow {
   id: string;
   at: string;
   kind: string;
+  actor_id: string | null;
   conversation_id: string | null;
   handoff_id: string | null;
   detail_json: string | null;

@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
-import { defaultRequestContext, hasScope, runWithRequestContext, type Scope } from "./context.js";
+import { currentRequestContext, defaultRequestContext, hasScope, runWithRequestContext, type Scope } from "./context.js";
 import type { ApiPrincipal } from "./config.js";
 
 function equalSecret(actual: string, expected: string): boolean {
@@ -28,28 +28,52 @@ export function createApiKeyMiddleware(
   principals: ApiPrincipal[],
   required: boolean,
   defaultWorkspaceId: string,
+  managed?: ManagedAuthenticator,
 ): (request: Request, response: Response, next: NextFunction) => void {
   return (request, response, next) => {
-    const header = request.header("authorization") ?? "";
-    const actual = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-    const principal = actual
-      ? principals.find((candidate) => equalSecret(actual, candidate.key))
-      : undefined;
+    void (async () => {
+      const header = request.header("authorization") ?? "";
+      const actual = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+      const principal = actual
+        ? principals.find((candidate) => equalSecret(actual, candidate.key))
+        : undefined;
 
-    if (!principal && (required || actual)) {
-      response.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-
-    const context = principal
-      ? {
+      if (principal) {
+        runWithRequestContext({
           workspaceId: principal.workspaceId,
           actorId: principal.actorId,
           scopes: new Set(principal.scopes),
-          authMethod: "api-key" as const,
-        }
-      : defaultRequestContext(defaultWorkspaceId);
-    runWithRequestContext(context, next);
+          authMethod: "api-key",
+        }, next);
+        return;
+      }
+
+      const identity = managed ? await managed.authenticate(request) : null;
+      if (identity) {
+        runWithRequestContext({
+          workspaceId: identity.workspaceId,
+          actorId: identity.actorId,
+          scopes: new Set(identity.scopes),
+          authMethod: "managed",
+        }, next);
+        return;
+      }
+
+      if (required || actual) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      runWithRequestContext(defaultRequestContext(defaultWorkspaceId), next);
+    })().catch((error: unknown) => {
+      console.error("[auth] authentication failed", error);
+      const statusCode = typeof error === "object" && error !== null && "statusCode" in error
+        && typeof error.statusCode === "number" ? error.statusCode : 503;
+      if (!response.headersSent) {
+        response.status(statusCode).json({
+          error: statusCode === 403 ? (error instanceof Error ? error.message : "Forbidden") : "Authentication is temporarily unavailable.",
+        });
+      }
+    });
   };
 }
 
@@ -146,6 +170,12 @@ export function rateLimit(options: RateLimitOptions) {
 }
 
 function clientKey(request: Request): string {
+  const context = currentRequestContext();
+  if (context && context.authMethod !== "default") {
+    return `actor:${context.workspaceId}:${context.actorId}`;
+  }
+  const forwarded = request.header("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
   return request.ip ?? request.socket.remoteAddress ?? "unknown";
 }
 
@@ -176,4 +206,16 @@ export function withLoopback(hosts: string[], port: number): string[] {
     ...loopback,
     ...loopback.map((name) => `${name}:${port}`),
   ])];
+}
+
+export interface ManagedIdentity {
+  workspaceId: string;
+  actorId: string;
+  scopes: Scope[];
+  issuer: string;
+  subject: string;
+}
+
+export interface ManagedAuthenticator {
+  authenticate(request: Request): Promise<ManagedIdentity | null>;
 }

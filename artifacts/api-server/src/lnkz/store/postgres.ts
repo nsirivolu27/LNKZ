@@ -23,14 +23,14 @@ import type {
   StoreStats,
 } from "../types.js";
 
-export const REQUIRED_POSTGRES_SCHEMA_VERSION = 2;
+export const REQUIRED_POSTGRES_SCHEMA_VERSION = 3;
 export { DEFAULT_WORKSPACE_ID };
 
 /**
  * The Postgres implementation deliberately keeps the ConversationStore
- * contract identical to SQLite. Until the identity layer supplies a request
- * workspace, LNKZ_POSTGRES_WORKSPACE_ID selects the single workspace used by
- * this process. It is required explicitly in production deployments.
+ * contract identical to SQLite. The request identity layer supplies a
+ * workspace when a managed session or API principal is present; otherwise
+ * LNKZ_POSTGRES_WORKSPACE_ID preserves single-workspace compatibility.
  */
 export class PostgresConversationStore implements ConversationStore {
   private readonly pool: Pool;

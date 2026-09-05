@@ -8,7 +8,7 @@ export interface RequestContext {
   workspaceId: string;
   actorId: string;
   scopes: ReadonlySet<Scope>;
-  authMethod: "api-key" | "default";
+  authMethod: "api-key" | "managed" | "default";
 }
 
 const requestContext = new AsyncLocalStorage<RequestContext>();

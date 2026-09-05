@@ -29,7 +29,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const key = getApiKey();
   if (key) headers.set("authorization", `Bearer ${key}`);
 
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(path, { ...init, headers, credentials: "include" });
   if (response.status === 204) return undefined as T;
 
   const text = await response.text();

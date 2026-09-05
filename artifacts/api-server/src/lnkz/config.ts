@@ -32,6 +32,13 @@ export interface AppConfig {
     apiKeyRequired: boolean;
     defaultWorkspaceId: string;
     principals: ApiPrincipal[];
+    managed: {
+      enabled: boolean;
+      issuerUrl: string;
+      clientId: string;
+      sessionTtlMs: number;
+      workspaceId: string;
+    };
   };
 }
 
@@ -55,17 +62,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   validateUuid(defaultWorkspaceId, "LNKZ_POSTGRES_WORKSPACE_ID");
   const authMode = env.LNKZ_AUTH_MODE?.trim().toLowerCase() === "multi-key" ? "multi-key" : "static";
   const principals = parsePrincipals(env.LNKZ_API_KEYS_JSON, apiKey, defaultWorkspaceId, env.LNKZ_DEFAULT_ACTOR_ID);
-  const apiKeyRequired = Boolean(apiKey) || mcpAuthRequired || authMode === "multi-key" || !allowUnauthenticated;
-  if (mcpEnabled && mcpAuthRequired && principals.length === 0) {
-    throw new Error("LNKZ_MCP_API_KEY_REQUIRED=true requires LNKZ_API_KEY or LNKZ_API_KEYS_JSON.");
+  const managedEnabled = boolean(env.LNKZ_MANAGED_AUTH_ENABLED, Boolean(env.REPL_ID?.trim() && env.DATABASE_URL?.trim()));
+  const managedIssuerUrl = env.LNKZ_MANAGED_AUTH_ISSUER?.trim() || "https://replit.com/oidc";
+  const managedClientId = env.LNKZ_MANAGED_AUTH_CLIENT_ID?.trim() || env.REPL_ID?.trim() || "";
+  const managedWorkspaceId = env.LNKZ_MANAGED_WORKSPACE_ID?.trim() || defaultWorkspaceId;
+  if (managedEnabled && !env.DATABASE_URL?.trim()) {
+    throw new Error("LNKZ_MANAGED_AUTH_ENABLED=true requires DATABASE_URL.");
+  }
+  if (managedEnabled && !managedClientId) {
+    throw new Error("Managed authentication requires REPL_ID or LNKZ_MANAGED_AUTH_CLIENT_ID.");
+  }
+  if (managedEnabled) {
+    validateBaseUrl(managedIssuerUrl);
+    validateUuid(managedWorkspaceId, "LNKZ_MANAGED_WORKSPACE_ID");
+  }
+  const apiKeyRequired = Boolean(apiKey) || mcpAuthRequired || authMode === "multi-key" || !allowUnauthenticated || managedEnabled;
+  if (mcpEnabled && mcpAuthRequired && principals.length === 0 && !managedEnabled) {
+    throw new Error("LNKZ_MCP_API_KEY_REQUIRED=true requires API keys or managed authentication.");
   }
   if (authMode === "multi-key" && principals.length === 0) {
     throw new Error("LNKZ_AUTH_MODE=multi-key requires LNKZ_API_KEYS_JSON.");
   }
-  if (apiKeyRequired && principals.length === 0) {
+  if (apiKeyRequired && principals.length === 0 && !managedEnabled) {
     throw new Error("Authentication is required; configure LNKZ_API_KEY or LNKZ_API_KEYS_JSON.");
   }
-
   return {
     host,
     port,
@@ -89,6 +109,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       apiKeyRequired,
       defaultWorkspaceId,
       principals,
+      managed: {
+        enabled: managedEnabled,
+        issuerUrl: managedIssuerUrl,
+        clientId: managedClientId,
+        sessionTtlMs: integer(env.LNKZ_MANAGED_SESSION_TTL_MS, 7 * 24 * 60 * 60 * 1000, 60_000, 30 * 24 * 60 * 60 * 1000, "LNKZ_MANAGED_SESSION_TTL_MS"),
+        workspaceId: managedWorkspaceId,
+      },
     },
   };
 }

@@ -40,6 +40,7 @@ import { resolveDatabaseUrl } from "./store/postgres.js";
 import type { PostgresRateLimiter } from "./store/rate-limit.js";
 import type { Conversation } from "./types.js";
 import { ZodError } from "zod";
+import { ManagedAuthService } from "./managed-auth.js";
 
 const config = loadConfig();
 const { host, port, publicBaseUrl } = config;
@@ -51,10 +52,12 @@ const allowedHosts = withLoopback(config.allowedHosts, port);
 const app = createMcpExpressApp({ host, allowedHosts: allowedHosts.length ? allowedHosts : undefined });
 app.set("trust proxy", config.trustProxy);
 const { store, core, connectors, sharedRateLimiter } = createRuntime();
+const managedAuth = config.auth.managed.enabled ? new ManagedAuthService(config.auth.managed) : undefined;
 const authenticate = createApiKeyMiddleware(
   config.auth.principals,
   config.auth.apiKeyRequired,
   config.auth.defaultWorkspaceId,
+  managedAuth,
 );
 const requireApiKey = (request: express.Request, response: express.Response, next: express.NextFunction): void => {
   authenticate(request, response, () => {
@@ -77,6 +80,32 @@ app.use((request, response, next) => {
   }
   next();
 });
+
+if (managedAuth) {
+  app.get("/api/login", (request, response) => {
+    void managedAuth.beginLogin(request, response).catch((error: unknown) => {
+      console.error("[auth] login failed", error);
+      if (!response.headersSent) response.status(503).json({ error: "Managed login is temporarily unavailable." });
+    });
+  });
+  app.get("/api/callback", (request, response) => {
+    void managedAuth.completeLogin(request, response).catch((error: unknown) => {
+      console.error("[auth] callback failed", error);
+      if (!response.headersSent) response.status(401).json({ error: "Managed login could not be completed." });
+    });
+  });
+  app.get("/api/logout", (request, response) => {
+    void managedAuth.logout(request, response).catch((error: unknown) => {
+      console.error("[auth] logout failed", error);
+      if (!response.headersSent) response.status(503).json({ error: "Logout is temporarily unavailable." });
+    });
+  });
+  app.get("/api/auth/user", (request, response) => {
+    void managedAuth.currentUser(request).then((user) => response.json({ user })).catch(() => response.json({ user: null }));
+  });
+} else {
+  app.get("/api/auth/user", (_request, response) => response.json({ user: null }));
+}
 
 /** Share links are unauthenticated by design, so they get their own budget. */
 const shareLimiter = rateLimit({ windowMs: config.rateLimitWindowMs, max: config.shareRateLimit });
@@ -397,7 +426,7 @@ const httpServer = app.listen(port, host, (error?: Error) => {
     return;
   }
   console.log(`[server] LLMM ${LNKZ_VERSION} listening on ${publicBaseUrl}`);
-  if (!process.env.LNKZ_API_KEY?.trim()) {
+  if (!process.env.LNKZ_API_KEY?.trim() && !managedAuth) {
     console.warn("[server] LNKZ_API_KEY is not set: the API and MCP endpoint are unauthenticated.");
   }
 });
@@ -413,6 +442,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
       clearTimeout(timeout);
       store.close();
       sharedRateLimiter?.close();
+      managedAuth?.close();
       process.exit(0);
     });
   });
