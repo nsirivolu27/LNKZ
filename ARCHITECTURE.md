@@ -47,4 +47,4 @@ This keeps the relay useful offline and makes the workflow predictable for downs
 
 One Node process serves the REST API and stateless Streamable HTTP MCP endpoint. A separate stdio
 entrypoint supports MCP hosts that launch a local process. The container has no web console or
-LLMM-specific UI assets; this repository owns only the relay workflow.
+product-specific UI assets; this repository owns only the relay workflow.
