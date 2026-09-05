@@ -9,6 +9,7 @@ import {
 } from "../src/lnkz/auth.js";
 import type { ApiPrincipal } from "../src/lnkz/config.js";
 import {
+  buildForwardedContextHeaders,
   currentRequestContext,
   runWithRequestContext,
   type RequestContext,
@@ -177,6 +178,57 @@ test("static API keys preserve the principal workspace, actor, and scopes", asyn
     scopes: ["read"],
     authMethod: "api-key",
   });
+});
+
+test("signed MCP context crosses a server hop without trusting plain headers", async () => {
+  const secret = "context-secret-that-is-long-enough-for-hmac";
+  let seen: RequestContext | undefined;
+  runWithRequestContext({
+    workspaceId,
+    actorId: "actor-hop",
+    scopes: new Set(["mcp", "read"]),
+    authMethod: "managed",
+    traceId: "trace-hop",
+  }, () => {
+    const headers = buildForwardedContextHeaders(secret);
+    const middleware = createApiKeyMiddleware([], true, workspaceId, undefined, secret);
+    middleware(requestDouble({ headers }), responseDouble() as never, () => {
+      seen = currentRequestContext();
+    });
+  });
+  await flush();
+  assert.deepEqual(seen && {
+    workspaceId: seen.workspaceId,
+    actorId: seen.actorId,
+    scopes: [...seen.scopes],
+    authMethod: seen.authMethod,
+    traceId: seen.traceId,
+  }, {
+    workspaceId,
+    actorId: "actor-hop",
+    scopes: ["mcp", "read"],
+    authMethod: "mcp-context",
+    traceId: "trace-hop",
+  });
+});
+
+test("invalid MCP context signatures do not bypass authentication", async () => {
+  const secret = "context-secret-that-is-long-enough-for-hmac";
+  const headers = runWithRequestContext({
+    workspaceId,
+    actorId: "actor-hop",
+    scopes: new Set(["mcp"]),
+    authMethod: "managed",
+  }, () => buildForwardedContextHeaders(secret));
+  const token = headers["x-lnkz-context"];
+  assert.ok(token);
+  const middleware = createApiKeyMiddleware([], true, workspaceId, undefined, `${secret}-different`);
+  const response = responseDouble();
+  middleware(requestDouble({ headers: { "x-lnkz-context": token } }), response as never, () => {
+    throw new Error("invalid context should not enter the request");
+  });
+  await flush();
+  assert.equal(response.statusCode, 401);
 });
 
 test("unknown credentials and denied managed users cannot enter a request context", async () => {

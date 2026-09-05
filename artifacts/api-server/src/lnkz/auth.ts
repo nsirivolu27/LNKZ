@@ -1,6 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
-import { currentRequestContext, defaultRequestContext, hasScope, runWithRequestContext, type Scope } from "./context.js";
+import {
+  currentRequestContext,
+  defaultRequestContext,
+  hasScope,
+  readForwardedContext,
+  runWithRequestContext,
+  type Scope,
+} from "./context.js";
 import type { ApiPrincipal } from "./config.js";
 
 function equalSecret(actual: string, expected: string): boolean {
@@ -29,6 +36,7 @@ export function createApiKeyMiddleware(
   required: boolean,
   defaultWorkspaceId: string,
   managed?: ManagedAuthenticator,
+  forwardedContextSecret?: string,
 ): (request: Request, response: Response, next: NextFunction) => void {
   return (request, response, next) => {
     void (async () => {
@@ -45,6 +53,15 @@ export function createApiKeyMiddleware(
           scopes: new Set(principal.scopes),
           authMethod: "api-key",
         }, next);
+        return;
+      }
+
+      const forwardedContext = readForwardedContext(
+        request.header("x-lnkz-context"),
+        forwardedContextSecret,
+      );
+      if (forwardedContext) {
+        runWithRequestContext(forwardedContext, next);
         return;
       }
 

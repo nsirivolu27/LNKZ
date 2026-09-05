@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { buildForwardedContextHeaders } from "../context.js";
 import type { Connector, ContextItem } from "../types.js";
 
 export function createFantasyConnector(env: NodeJS.ProcessEnv = process.env): Connector | null {
@@ -18,7 +19,7 @@ export function createFantasyConnector(env: NodeJS.ProcessEnv = process.env): Co
     }),
     search: async (query, limit) => {
       const client = new Client({ name: "lnkz", version: "0.1.0" });
-      const headers: Record<string, string> = {};
+      const headers: Record<string, string> = buildForwardedContextHeaders();
       if (apiKey) headers.authorization = `Bearer ${apiKey}`;
       const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } });
       try {

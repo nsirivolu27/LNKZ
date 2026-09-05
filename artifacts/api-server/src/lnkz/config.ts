@@ -11,6 +11,7 @@ export interface McpConfig {
   enabled: boolean;
   path: string;
   authRequired: boolean;
+  contextSecret?: string;
 }
 
 export interface AppConfig {
@@ -57,6 +58,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const mcpEnabled = boolean(env.LNKZ_MCP_ENABLED, true);
   const apiKey = env.LNKZ_API_KEY?.trim();
   const mcpAuthRequired = boolean(env.LNKZ_MCP_API_KEY_REQUIRED, false);
+  const mcpContextSecret = env.LNKZ_MCP_CONTEXT_SECRET?.trim() || undefined;
+  if (mcpContextSecret && mcpContextSecret.length < 32) {
+    throw new Error("LNKZ_MCP_CONTEXT_SECRET must be at least 32 characters.");
+  }
   const allowUnauthenticated = boolean(env.LNKZ_ALLOW_UNAUTHENTICATED, env.NODE_ENV !== "production");
   const defaultWorkspaceId = env.LNKZ_POSTGRES_WORKSPACE_ID?.trim() || DEFAULT_WORKSPACE_ID;
   validateUuid(defaultWorkspaceId, "LNKZ_POSTGRES_WORKSPACE_ID");
@@ -103,6 +108,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       enabled: mcpEnabled,
       path: mcpPath,
       authRequired: mcpAuthRequired,
+      contextSecret: mcpContextSecret,
     },
     auth: {
       mode: authMode,

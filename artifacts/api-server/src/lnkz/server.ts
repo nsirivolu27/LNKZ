@@ -60,6 +60,7 @@ const authenticate = createApiKeyMiddleware(
   config.auth.apiKeyRequired,
   config.auth.defaultWorkspaceId,
   managedAuth,
+  config.mcp.contextSecret,
 );
 const requireApiKey = (request: express.Request, response: express.Response, next: express.NextFunction): void => {
   authenticate(request, response, () => {
@@ -133,6 +134,7 @@ app.get("/health", (_request, response) => {
       enabled: config.mcp.enabled,
       path: config.mcp.path,
       authRequired: config.mcp.authRequired,
+      contextForwarding: Boolean(config.mcp.contextSecret),
     },
     connectors: connectorStatuses(core).map(({ id, configured }) => ({ id, configured })),
   });

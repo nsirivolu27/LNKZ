@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { buildForwardedContextHeaders } from "../context.js";
 import { looksLikeWrite, type RemoteTool } from "./prepare.js";
 
 /**
@@ -110,7 +111,7 @@ export function findTool(discovered: TargetTools[], targetName: string, toolName
 
 async function listToolsOverHttp(target: PublishTarget): Promise<RemoteTool[]> {
   const client = new Client({ name: "lnkz", version: "0.2.0" });
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = buildForwardedContextHeaders();
   if (target.apiKey) headers.authorization = `Bearer ${target.apiKey}`;
   const transport = new StreamableHTTPClientTransport(new URL(target.url), { requestInit: { headers } });
 
