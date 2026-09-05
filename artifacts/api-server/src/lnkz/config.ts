@@ -50,15 +50,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const mcpEnabled = boolean(env.LNKZ_MCP_ENABLED, true);
   const apiKey = env.LNKZ_API_KEY?.trim();
   const mcpAuthRequired = boolean(env.LNKZ_MCP_API_KEY_REQUIRED, false);
+  const allowUnauthenticated = boolean(env.LNKZ_ALLOW_UNAUTHENTICATED, env.NODE_ENV !== "production");
   const defaultWorkspaceId = env.LNKZ_POSTGRES_WORKSPACE_ID?.trim() || DEFAULT_WORKSPACE_ID;
   validateUuid(defaultWorkspaceId, "LNKZ_POSTGRES_WORKSPACE_ID");
   const authMode = env.LNKZ_AUTH_MODE?.trim().toLowerCase() === "multi-key" ? "multi-key" : "static";
   const principals = parsePrincipals(env.LNKZ_API_KEYS_JSON, apiKey, defaultWorkspaceId, env.LNKZ_DEFAULT_ACTOR_ID);
+  const apiKeyRequired = Boolean(apiKey) || mcpAuthRequired || authMode === "multi-key" || !allowUnauthenticated;
   if (mcpEnabled && mcpAuthRequired && principals.length === 0) {
     throw new Error("LNKZ_MCP_API_KEY_REQUIRED=true requires LNKZ_API_KEY or LNKZ_API_KEYS_JSON.");
   }
   if (authMode === "multi-key" && principals.length === 0) {
     throw new Error("LNKZ_AUTH_MODE=multi-key requires LNKZ_API_KEYS_JSON.");
+  }
+  if (apiKeyRequired && principals.length === 0) {
+    throw new Error("Authentication is required; configure LNKZ_API_KEY or LNKZ_API_KEYS_JSON.");
   }
 
   return {
@@ -81,7 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     auth: {
       mode: authMode,
-      apiKeyRequired: Boolean(apiKey) || mcpAuthRequired || authMode === "multi-key",
+      apiKeyRequired,
       defaultWorkspaceId,
       principals,
     },
@@ -155,6 +160,9 @@ function validateBaseUrl(value: string): void {
   }
   if (!["http:", "https:"].includes(parsed.protocol)) {
     throw new Error("LNKZ_PUBLIC_BASE_URL must use http or https.");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("LNKZ_PUBLIC_BASE_URL must not include user information.");
   }
 }
 

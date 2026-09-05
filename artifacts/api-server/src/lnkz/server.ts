@@ -4,7 +4,15 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
-import { createApiKeyMiddleware, createOriginValidator, rateLimit, requireScope, requestClientKey, withLoopback } from "./auth.js";
+import {
+  createApiKeyMiddleware,
+  createOriginValidator,
+  rateLimit,
+  requireScope,
+  requestClientKey,
+  securityHeaders,
+  withLoopback,
+} from "./auth.js";
 import { loadConfig } from "./config.js";
 import { connectorStatuses } from "./connectors/index.js";
 import { importConversations } from "./import/index.js";
@@ -31,6 +39,7 @@ import { createRuntime } from "./runtime.js";
 import { resolveDatabaseUrl } from "./store/postgres.js";
 import type { PostgresRateLimiter } from "./store/rate-limit.js";
 import type { Conversation } from "./types.js";
+import { ZodError } from "zod";
 
 const config = loadConfig();
 const { host, port, publicBaseUrl } = config;
@@ -59,8 +68,15 @@ const requireMcpAuth = (request: express.Request, response: express.Response, ne
 };
 
 app.disable("x-powered-by");
+app.use(securityHeaders);
 app.use(express.json({ limit: config.maxBody }));
 app.use(createOriginValidator(config.allowedOrigins));
+app.use((request, response, next) => {
+  if (request.path === "/health" || request.path === config.mcp.path || request.path.startsWith("/api/")) {
+    response.setHeader("cache-control", "no-store");
+  }
+  next();
+});
 
 /** Share links are unauthenticated by design, so they get their own budget. */
 const shareLimiter = rateLimit({ windowMs: config.rateLimitWindowMs, max: config.shareRateLimit });
@@ -345,6 +361,35 @@ if (existsSync(webDist)) {
   });
 }
 
+app.use((request, response, next) => {
+  if (request.path.startsWith("/api/") || request.path === config.mcp.path) {
+    response.status(404).json({ error: "Not found." });
+    return;
+  }
+  next();
+});
+
+app.use((error: unknown, request: express.Request, response: express.Response, next: express.NextFunction) => {
+  if (response.headersSent) {
+    next(error);
+    return;
+  }
+  if (error instanceof SyntaxError && "body" in error) {
+    response.status(400).json({ error: "Malformed JSON request." });
+    return;
+  }
+  if (isPayloadTooLarge(error)) {
+    response.status(413).json({ error: "Request body is too large." });
+    return;
+  }
+  console.error("[server] request failed", {
+    method: request.method,
+    path: request.path,
+    error: error instanceof Error ? error.message : "unknown error",
+  });
+  response.status(500).json({ error: "Internal server error." });
+});
+
 const httpServer = app.listen(port, host, (error?: Error) => {
   if (error) {
     console.error("[server] failed to start", error);
@@ -384,7 +429,26 @@ async function loadRecent(limit: number): Promise<Conversation[]> {
 }
 
 function badRequest(response: express.Response, error: unknown): void {
-  response.status(400).json({ error: error instanceof Error ? error.message : "Invalid request." });
+  if (error instanceof ZodError) {
+    response.status(400).json({
+      error: "Invalid request.",
+      issues: error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+  response.status(400).json({ error: "Invalid request." });
+}
+
+function isPayloadTooLarge(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "type" in error &&
+      (error as { type?: unknown }).type === "entity.too.large",
+  );
 }
 
 function pathParam(value: string | string[]): string {

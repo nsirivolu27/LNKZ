@@ -74,6 +74,24 @@ export function createOriginValidator(allowed: string[]): (request: Request, res
   };
 }
 
+export function securityHeaders(request: Request, response: Response, next: NextFunction): void {
+  response.setHeader("x-content-type-options", "nosniff");
+  response.setHeader("x-frame-options", "DENY");
+  response.setHeader("referrer-policy", "strict-origin-when-cross-origin");
+  response.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  response.setHeader("cross-origin-opener-policy", "same-origin");
+  response.setHeader("cross-origin-resource-policy", "same-origin");
+  response.setHeader(
+    "content-security-policy",
+    "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; " +
+      "img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'",
+  );
+  if (request.secure) {
+    response.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+}
+
 export const validateOrigin = createOriginValidator(
   (process.env.ALLOWED_ORIGINS ?? "").split(",").map((value) => value.trim()).filter(Boolean),
 );
@@ -128,8 +146,6 @@ export function rateLimit(options: RateLimitOptions) {
 }
 
 function clientKey(request: Request): string {
-  const forwarded = request.header("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
   return request.ip ?? request.socket.remoteAddress ?? "unknown";
 }
 
