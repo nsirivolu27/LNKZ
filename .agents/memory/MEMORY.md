@@ -1,3 +1,4 @@
 - [Artifact static asset paths](artifact-assets.md) — resolve web-dist paths across package-local and workspace-root launch contexts.
 - [MCP TypeScript schema inference](mcp-typescript.md) — keep recursive SDK inference suppressions narrow and preserve strict checking elsewhere.
 - [Backend security baseline](backend-security.md) — keep production fail-closed, browser-hardened, origin-checked, and safe-error defaults while auth evolves.
+- [LNKZ repository split](lnkz-repo.md) — keep the focused relay workflow in LNKZ and the main MCP product in LLMM.
