@@ -10,16 +10,17 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.30.0",
     "express": "^5.1.0",
     "pg": "^8.23.0",
-    "zod": "^3.25.0"
+    "zod": "^3.25.28"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
     "@types/node": "catalog:",
+    "@types/pg": "8.15.5",
     "esbuild": "0.27.3"
   }
 }

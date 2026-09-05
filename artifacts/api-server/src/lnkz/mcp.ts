@@ -36,10 +36,10 @@ export function createLnkzMcpServer(
   publicBaseUrl = process.env.LNKZ_PUBLIC_BASE_URL || "http://localhost:3100",
 ): McpServer {
   const server = new McpServer(
-    { name: "lnkz", version: LNKZ_VERSION },
+    { name: "llmm", version: LNKZ_VERSION },
     {
       instructions: [
-        "LNKZ carries conversation context between people, devices, and LLM clients.",
+        "LLMM carries portable conversation context between people, devices, and LLM clients.",
         "Save or import a chat, build a context packet when another model needs the gist,",
         "and create a handoff when a human or a different client needs the whole thread.",
         "Treat handoff tokens as bearer secrets and never echo them into shared output.",
@@ -94,7 +94,7 @@ export function createLnkzMcpServer(
     "import_conversation",
     {
       title: "Import a chat from another client",
-      description: "Normalizes a ChatGPT, Claude, Gemini, LNKZ, Markdown, or plain-text transcript into LNKZ conversations. Format is detected automatically unless one is given.",
+      description: "Normalizes a ChatGPT, Claude, Gemini, LLMM, Markdown, or plain-text transcript into portable conversations. Format is detected automatically unless one is given.",
       inputSchema: importSchema.shape,
       annotations: { readOnlyHint: false, idempotentHint: false },
     },
@@ -172,7 +172,7 @@ export function createLnkzMcpServer(
   server.registerTool(
     "search_conversations",
     {
-      title: "Search LNKZ conversations",
+      title: "Search LLMM conversations",
       description: "Full-text ranked search across saved chats by title, summary, participant, tag, or message content.",
       inputSchema: searchConversationsSchema.shape,
       annotations: { readOnlyHint: true },
@@ -247,7 +247,7 @@ export function createLnkzMcpServer(
     "redeem_handoff",
     {
       title: "Redeem conversation handoff",
-      description: "Loads the portable packet behind an unexpired LNKZ handoff token, including the transcript and the extracted decisions and open questions.",
+      description: "Loads the portable packet behind an unexpired LLMM handoff token, including the transcript and the extracted decisions and open questions.",
       inputSchema: redeemHandoffSchema.shape,
       annotations: { readOnlyHint: false, idempotentHint: false },
     },
@@ -415,7 +415,7 @@ export function createLnkzMcpServer(
     "search_context",
     {
       title: "Search connected context",
-      description: "Searches LNKZ conversations plus every configured connector (Slack, Jira, Figma, documentation feeds, and any federated MCP server) in one call, reporting per-source failures instead of hiding them.",
+      description: "Searches LLMM conversations plus every configured connector (Slack, Jira, Figma, documentation feeds, and any federated MCP server) in one call, reporting per-source failures instead of hiding them.",
       inputSchema: contextSearchSchema.shape,
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
@@ -471,7 +471,7 @@ export function createLnkzMcpServer(
     "audit_log",
     {
       title: "Read the audit log",
-      description: "Returns recent LNKZ events: saves, imports, handoff creation, redemption, rejection, and revocation.",
+      description: "Returns recent LLMM events: saves, imports, handoff creation, redemption, rejection, and revocation.",
       inputSchema: auditSchema.shape,
       annotations: { readOnlyHint: true },
     },
@@ -490,28 +490,28 @@ export function createLnkzMcpServer(
   server.registerResource(
     "connector-status",
     "lnkz://connectors",
-    { title: "LNKZ connector status", description: "Configured and disabled connector inventory.", mimeType: "application/json" },
+    { title: "LLMM connector status", description: "Configured and disabled connector inventory.", mimeType: "application/json" },
     async () => jsonResource("lnkz://connectors", { connectors: connectorStatuses(coreConnector) }),
   );
 
   server.registerResource(
     "workspace-stats",
     "lnkz://stats",
-    { title: "LNKZ workspace statistics", description: "Conversation, message, provider, and handoff counts.", mimeType: "application/json" },
+    { title: "LLMM workspace statistics", description: "Conversation, message, provider, and handoff counts.", mimeType: "application/json" },
     async () => jsonResource("lnkz://stats", await store.stats()),
   );
 
   server.registerResource(
     "recent-conversations",
     "lnkz://conversations",
-    { title: "Recent LNKZ conversations", description: "The 25 most recently updated conversations.", mimeType: "application/json" },
+    { title: "Recent LLMM conversations", description: "The 25 most recently updated conversations.", mimeType: "application/json" },
     async () => jsonResource("lnkz://conversations", { conversations: await store.list({ limit: 25 }) }),
   );
 
   server.registerResource(
     "conversation",
     new ResourceTemplate("lnkz://conversation/{id}", { list: undefined }),
-    { title: "LNKZ conversation", description: "One conversation as a portable Markdown transcript.", mimeType: "text/markdown" },
+    { title: "LLMM conversation", description: "One conversation as a portable Markdown transcript.", mimeType: "text/markdown" },
     async (uri, variables) => {
       const id = Array.isArray(variables.id) ? variables.id[0] : variables.id;
       const conversation = id ? await store.get(id) : null;
@@ -534,7 +534,7 @@ export function createLnkzMcpServer(
     "continue_shared_conversation",
     {
       title: "Continue shared conversation",
-      description: "Resume a LNKZ handoff while preserving facts, decisions, sources, and unanswered questions.",
+      description: "Resume an LLMM handoff while preserving facts, decisions, sources, and unanswered questions.",
       argsSchema: { token: z.string().min(20), goal: z.string().min(1).optional() },
     },
     async ({ token, goal }) => userPrompt(

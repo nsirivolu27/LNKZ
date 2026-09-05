@@ -79,7 +79,7 @@ const sharedApiLimiter = sharedRateLimitMiddleware(sharedRateLimiter, {
 app.get("/health", (_request, response) => {
   response.json({
     ok: true,
-    service: "lnkz",
+    service: "llmm",
     version: LNKZ_VERSION,
     protocol: "MCP Streamable HTTP",
     mcp: {
@@ -331,7 +331,13 @@ if (config.mcp.enabled) {
 }
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
-const webDist = resolve(config.webDistDir || resolve(moduleDirectory, "..", "..", "dist"));
+const configuredWebDist = config.webDistDir ? resolve(config.webDistDir) : undefined;
+const webDist = [
+  configuredWebDist,
+  resolve(process.cwd(), "web-dist"),
+  resolve(moduleDirectory, "..", "web-dist"),
+  resolve(moduleDirectory, "..", "..", "dist"),
+].find((candidate): candidate is string => Boolean(candidate && existsSync(candidate))) ?? "";
 if (existsSync(webDist)) {
   app.use(express.static(webDist));
   app.get(/^\/(?!api|mcp|share|health).*/, (_request, response) => {
@@ -345,7 +351,7 @@ const httpServer = app.listen(port, host, (error?: Error) => {
     process.exitCode = 1;
     return;
   }
-  console.log(`[server] LNKZ ${LNKZ_VERSION} listening on ${publicBaseUrl}`);
+  console.log(`[server] LLMM ${LNKZ_VERSION} listening on ${publicBaseUrl}`);
   if (!process.env.LNKZ_API_KEY?.trim()) {
     console.warn("[server] LNKZ_API_KEY is not set: the API and MCP endpoint are unauthenticated.");
   }

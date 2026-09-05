@@ -6,11 +6,22 @@
     <meta name="robots" content="noindex" />
     <meta
       name="description"
-      content="LNKZ console: import conversations from any LLM, build context packets, and mint expiring handoffs."
+      content="LLMM console: import conversations from any LLM, build context packets, and mint expiring handoffs."
     />
     <meta name="theme-color" content="#090d0c" />
-    <title>LNKZ Console</title>
+    <title>LLMM Console</title>
     <script type="module" crossorigin src="/assets/console-GalpL-kJ.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        while (walker.nextNode()) textNodes.push(walker.currentNode);
+        for (const node of textNodes) node.nodeValue = node.nodeValue.replace(/\bLNKZ\b/g, "LLMM");
+        for (const element of document.querySelectorAll("[aria-label]")) {
+          element.setAttribute("aria-label", element.getAttribute("aria-label").replace(/\bLNKZ\b/g, "LLMM"));
+        }
+      });
+    </script>
     <link rel="modulepreload" crossorigin href="/assets/styles-BOUOENTT.js">
     <link rel="stylesheet" crossorigin href="/assets/styles-DciHJTJz.css">
     <link rel="stylesheet" crossorigin href="/assets/console-BSiAETao.css">

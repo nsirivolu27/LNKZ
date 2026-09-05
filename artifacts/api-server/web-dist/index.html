@@ -5,11 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="LNKZ securely carries conversation context between people, devices, AI clients, and the tools where work happens."
+      content="LLMM securely carries portable conversation context between people, devices, AI clients, and the tools where work happens."
     />
     <meta name="theme-color" content="#090d0c" />
-    <title>LNKZ | Carry the conversation forward</title>
+    <title>LLMM | Large Language Model Mover</title>
     <script type="module" crossorigin src="/assets/main-DxJyGxTE.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        while (walker.nextNode()) textNodes.push(walker.currentNode);
+        for (const node of textNodes) node.nodeValue = node.nodeValue.replace(/\bLNKZ\b/g, "LLMM");
+        for (const element of document.querySelectorAll("[aria-label]")) {
+          element.setAttribute("aria-label", element.getAttribute("aria-label").replace(/\bLNKZ\b/g, "LLMM"));
+        }
+      });
+    </script>
     <link rel="modulepreload" crossorigin href="/assets/styles-BOUOENTT.js">
     <link rel="stylesheet" crossorigin href="/assets/styles-DciHJTJz.css">
   </head>

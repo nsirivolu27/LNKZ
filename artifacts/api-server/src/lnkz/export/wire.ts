@@ -19,6 +19,7 @@ const exportSchema = {
 };
 
 export function registerExportTool(server: McpServer, store: ConversationStore): void {
+  // @ts-expect-error TS2589 from recursive MCP schema inference
   server.registerTool(
     "export_conversation",
     {

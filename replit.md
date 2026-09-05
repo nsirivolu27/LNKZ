@@ -1,20 +1,20 @@
-# [Project name]
+# LLMM — Large Language Model Mover
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+LLMM moves useful conversation context between large language models, AI clients, devices, and people.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the LLMM server (port 8080)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `DATABASE_URL` — Postgres connection string; the development database must have LLMM migrations applied
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
+- API/MCP: Express 5 with stateless Streamable HTTP
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
@@ -22,15 +22,20 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/api-server/src/lnkz/` — LLMM server, MCP tools, storage, imports, analysis, and connectors
+- `artifacts/api-server/web-dist/` — LLMM web console and landing page
+- `artifacts/api-server/.replit-artifact/artifact.toml` — preview and publishing configuration
+- `.local/conversation-workspace/files/` — preserved upstream repository materials used during migration
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Product name is LLMM; `LNKZ_*` environment variables, MCP tool names, and `lnkz://` resource URIs remain compatibility contracts.
+- MCP, REST, and the web console share the same `ConversationStore` contract.
+- SQLite remains local single-tenant mode; Postgres provides workspace RLS and actor-scoped authorization.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Import a conversation, normalize it, extract decisions and open questions, build a bounded context packet, hand it to another model/person/device, and continue it with lineage preserved.
 
 ## User preferences
 
@@ -38,7 +43,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Run the Postgres migrations before starting the server when `DATABASE_URL` is present.
+- Use the shared preview proxy for testing (`http://localhost:80/health`), not the internal service port.
 
 ## Pointers
 

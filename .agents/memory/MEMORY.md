@@ -1,0 +1,2 @@
+- [Artifact static asset paths](artifact-assets.md) — resolve web-dist paths across package-local and workspace-root launch contexts.
+- [MCP TypeScript schema inference](mcp-typescript.md) — keep recursive SDK inference suppressions narrow and preserve strict checking elsewhere.
