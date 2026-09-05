@@ -584,20 +584,7 @@ export class PostgresConversationStore implements ConversationStore {
     client: PoolClient,
     event: Omit<AuditEvent, "id" | "at"> & { at?: string },
   ): Promise<void> {
-    await client.query(
-      `insert into events (id, workspace_id, actor_id, at, kind, conversation_id, handoff_id, detail_json)
-       values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
-      [
-        randomUUID(),
-        this.activeWorkspaceId(),
-        currentRequestContext()?.actorId ?? "system",
-        event.at ?? new Date().toISOString(),
-        event.kind,
-        event.conversationId ?? null,
-        event.handoffId ?? null,
-        event.detail ? JSON.stringify(event.detail) : null,
-      ],
-    );
+    await insertAuditEvent(client, this.activeWorkspaceId(), event);
   }
 
   private async findMembership(client: PoolClient, issuer: string, subject: string): Promise<WorkspaceMembership | null> {
@@ -663,6 +650,27 @@ export class PostgresConversationStore implements ConversationStore {
     );
     return result.rows;
   }
+}
+
+export async function insertAuditEvent(
+  client: { query(text: string, values?: unknown[]): Promise<unknown> },
+  workspaceId: string,
+  event: Omit<AuditEvent, "id" | "at"> & { at?: string },
+): Promise<void> {
+  await client.query(
+    `insert into events (id, workspace_id, actor_id, at, kind, conversation_id, handoff_id, detail_json)
+     values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+    [
+      randomUUID(),
+      workspaceId,
+      currentRequestContext()?.actorId ?? "system",
+      event.at ?? new Date().toISOString(),
+      event.kind,
+      event.conversationId ?? null,
+      event.handoffId ?? null,
+      event.detail ? JSON.stringify(event.detail) : null,
+    ],
+  );
 }
 
 interface ConversationRow extends QueryResultRow {

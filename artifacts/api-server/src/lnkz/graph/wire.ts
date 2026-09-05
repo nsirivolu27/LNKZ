@@ -16,7 +16,6 @@ export const graphSchema = {
 const graphObject = z.object(graphSchema);
 
 export function registerGraphTools(server: McpServer, store: ConversationStore): void {
-  // @ts-expect-error TS2589 from recursive MCP schema inference
   server.registerTool(
     "build_context_graph",
     {

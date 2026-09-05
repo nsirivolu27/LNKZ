@@ -48,31 +48,37 @@ export class ManagedAuthService implements ManagedAuthenticator {
   private readonly pool: Pool;
   private readonly config: ManagedAuthConfig;
   private readonly sessionSecret: string;
+  private readonly oidc: typeof oidc;
   private oidcConfig: Awaited<ReturnType<typeof oidc.discovery>> | null = null;
 
-  constructor(config: ManagedAuthConfig, databaseUrl = process.env.DATABASE_URL) {
+  constructor(
+    config: ManagedAuthConfig,
+    databaseUrl = process.env.DATABASE_URL,
+    dependencies: { pool?: Pool; oidc?: typeof oidc } = {},
+  ) {
     if (!config.enabled) throw new Error("Managed authentication is disabled.");
-    if (!databaseUrl) throw new Error("DATABASE_URL is required for managed authentication.");
+    if (!databaseUrl && !dependencies.pool) throw new Error("DATABASE_URL is required for managed authentication.");
     this.config = config;
+    this.oidc = dependencies.oidc ?? oidc;
     this.sessionSecret = process.env.SESSION_SECRET?.trim() || randomBytes(32).toString("hex");
-    this.pool = new Pool({
-      connectionString: databaseUrl,
-      max: 3,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
-      ssl: process.env.DATABASE_SSL === "false" ? false : { rejectUnauthorized: true },
-    });
+    this.pool = dependencies.pool ?? new Pool({
+        connectionString: databaseUrl,
+        max: 3,
+        idleTimeoutMillis: 30_000,
+        connectionTimeoutMillis: 5_000,
+        ssl: process.env.DATABASE_SSL === "false" ? false : { rejectUnauthorized: true },
+      });
   }
 
   async beginLogin(request: Request, response: Response): Promise<void> {
     const config = await this.getOidcConfig();
-    const state = oidc.randomState();
-    const nonce = oidc.randomNonce();
-    const verifier = oidc.randomPKCECodeVerifier();
-    const challenge = await oidc.calculatePKCECodeChallenge(verifier);
+    const state = this.oidc.randomState();
+    const nonce = this.oidc.randomNonce();
+    const verifier = this.oidc.randomPKCECodeVerifier();
+    const challenge = await this.oidc.calculatePKCECodeChallenge(verifier);
     const returnTo = safeReturnTo(request.query.returnTo);
     const callbackUrl = `${requestOrigin(request)}/api/callback`;
-    const authorizationUrl = oidc.buildAuthorizationUrl(config, {
+    const authorizationUrl = this.oidc.buildAuthorizationUrl(config, {
       redirect_uri: callbackUrl,
       scope: "openid email profile",
       code_challenge: challenge,
@@ -98,12 +104,12 @@ export class ManagedAuthService implements ManagedAuthenticator {
     }
 
     const callbackUrl = new URL(`${requestOrigin(request)}${request.originalUrl}`);
-    const tokens = await oidc.authorizationCodeGrant(await this.getOidcConfig(), callbackUrl, {
-      pkceCodeVerifier: verifier,
-      expectedNonce: nonce,
-      expectedState: state,
-      idTokenExpected: true,
-    });
+    const grantOptions = callbackGrantOptions(state, nonce, verifier);
+    if (!grantOptions) {
+      response.redirect("/api/login");
+      return;
+    }
+    const tokens = await this.oidc.authorizationCodeGrant(await this.getOidcConfig(), callbackUrl, grantOptions);
     const claims = tokens.claims() as unknown as IdentityClaims | undefined;
     const subject = stringClaim(claims?.sub);
     if (!subject) throw new Error("Managed identity did not include a subject.");
@@ -208,13 +214,34 @@ export class ManagedAuthService implements ManagedAuthenticator {
   }
 
   private async getOidcConfig(): Promise<Awaited<ReturnType<typeof oidc.discovery>>> {
-    if (!this.oidcConfig) this.oidcConfig = await oidc.discovery(new URL(this.config.issuerUrl), this.config.clientId);
+    if (!this.oidcConfig) this.oidcConfig = await this.oidc.discovery(new URL(this.config.issuerUrl), this.config.clientId);
     return this.oidcConfig;
   }
 
   private hashSession(value: string): string {
     return createHmac("sha256", this.sessionSecret).update(value).digest("hex");
   }
+}
+
+export interface CallbackGrantOptions {
+  pkceCodeVerifier: string;
+  expectedNonce: string;
+  expectedState: string;
+  idTokenExpected: true;
+}
+
+export function callbackGrantOptions(
+  state: string | undefined,
+  nonce: string | undefined,
+  verifier: string | undefined,
+): CallbackGrantOptions | null {
+  if (!state || !nonce || !verifier) return null;
+  return {
+    pkceCodeVerifier: verifier,
+    expectedNonce: nonce,
+    expectedState: state,
+    idTokenExpected: true,
+  };
 }
 
 export function safeReturnTo(value: unknown): string {

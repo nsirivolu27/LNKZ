@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
     "typecheck:web": "tsc -p tsconfig.web.json --noEmit",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
