@@ -1,0 +1,28 @@
+# Render blueprint. A disk is required: the SQLite store must survive a redeploy.
+services:
+  - type: web
+    name: lnkz
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./mcp-server/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    disk:
+      name: lnkz-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: "3100"
+      - key: LNKZ_DB_FILE
+        value: /app/data/lnkz.db
+      - key: LNKZ_API_KEY
+        generateValue: true
+      - key: LNKZ_PUBLIC_BASE_URL
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

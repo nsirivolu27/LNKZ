@@ -1,0 +1,53 @@
+services:
+  lnkz:
+    build:
+      context: .
+      dockerfile: mcp-server/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3100
+      LNKZ_API_KEY: ${LNKZ_API_KEY:-change-me}
+      LNKZ_MCP_API_KEY_REQUIRED: ${LNKZ_MCP_API_KEY_REQUIRED:-true}
+      LNKZ_MCP_ENABLED: ${LNKZ_MCP_ENABLED:-true}
+      LNKZ_MCP_PATH: ${LNKZ_MCP_PATH:-/mcp}
+      LNKZ_PUBLIC_BASE_URL: ${LNKZ_PUBLIC_BASE_URL:-http://localhost:3100}
+      LNKZ_TRUST_PROXY: ${LNKZ_TRUST_PROXY:-false}
+      LNKZ_MAX_BODY: ${LNKZ_MAX_BODY:-24mb}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3100}
+      LNKZ_DB_FILE: /app/data/lnkz.db
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      LNKZ_POSTGRES_WORKSPACE_ID: ${LNKZ_POSTGRES_WORKSPACE_ID:-00000000-0000-4000-8000-000000000001}
+      LNKZ_RATE_LIMIT_WINDOW_MS: ${LNKZ_RATE_LIMIT_WINDOW_MS:-60000}
+      LNKZ_SHARE_RATE_LIMIT: ${LNKZ_SHARE_RATE_LIMIT:-60}
+      LNKZ_API_RATE_LIMIT: ${LNKZ_API_RATE_LIMIT:-600}
+    # Run the separate MCP stdio transport with:
+    # docker compose run --rm -T lnkz node dist/stdio.js
+    env_file:
+      - path: mcp-server/.env
+        required: false
+    ports:
+      - "3100:3100"
+    volumes:
+      - lnkz-data:/app/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lnkz}
+      POSTGRES_USER: ${POSTGRES_USER:-lnkz}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lnkz-dev-only}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - lnkz-postgres:/var/lib/postgresql/data
+
+volumes:
+  lnkz-data:
+  lnkz-postgres:

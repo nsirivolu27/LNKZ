@@ -1,0 +1,157 @@
+Approved with corrections. The plan is strong and several parts are better than
+what I asked for, so before the corrections, the things to keep exactly as they
+are, because I do not want them undone while fixing something else:
+
+- Duplicating workspace_id onto messages, handoffs and audit rows so RLS is direct
+  and a cross-workspace join cannot become an access path. That is the right call.
+- SET LOCAL inside a transaction rather than a session-level SET, and naming
+  connection-pool leakage as the reason. That is the detail most people get wrong.
+- The app role must not have BYPASSRLS.
+- Migrations as an explicit release step, with startup failing closed when the
+  schema is behind rather than silently mutating a production database.
+- Refusing to add an encrypted connector-credentials table while credentials are
+  still environment variables. Do not build speculative infrastructure.
+- Documenting that the Postgres English dictionary and the SQLite Porter tokenizer
+  will not rank identically, and testing ordering and snippets rather than float
+  values.
+- Choosing WAF over Turnstile because MCP clients are not browsers. I would have
+  said Turnstile; you were right.
+
+## Corrections
+
+### 1. The architecture as written has no internet access at all
+
+This is the one that matters. You attach an App Runner VPC connector and then
+deliberately omit the NAT Gateway to save cost. Those two decisions are
+incompatible. From the App Runner networking documentation:
+
+  "When you connect your service to a VPC, the outbound traffic doesn't have
+   access to the public internet. All outbound traffic from your application is
+   directed through the VPC that your service is connected to... your services
+   can't access the public internet and AWS APIs."
+
+It is all outbound traffic, not just VPC-destined traffic. So with this design
+LNKZ can reach Postgres and nothing else. Everything below breaks silently:
+
+- the Slack, Jira, Figma and document-feed connectors
+- publish target discovery and prepare_publish against downstream MCP servers
+- the federated MCP adapter
+- any KMS or Secrets Manager call made from application code
+
+Federated search is half the product. This has to be resolved before anything
+else in the stack is built.
+
+Options, and I want your recommendation with the tradeoff stated:
+
+a. NAT Gateway. Textbook, managed, and roughly $32 a month plus data transfer
+   before any traffic. It removes the cost advantage that motivated avoiding it.
+b. NAT instance on t4g.nano in a public subnet. Roughly $3 a month, self-managed,
+   a single point of failure unless you run two. Defensible for a portfolio
+   project and worth saying so out loud rather than pretending it is production
+   grade.
+c. Gateway endpoint for S3, which is free, plus interface endpoints for Secrets
+   Manager, KMS and ECR at roughly $7 a month each per AZ. This fixes the AWS API
+   calls only. It does nothing for Slack, Jira or Figma, which are public
+   internet. So this is a complement, never the answer on its own.
+
+Whatever you pick, add the S3 gateway endpoint regardless, because it is free and
+keeps backup traffic off the NAT path.
+
+Also verify, do not assume: whether App Runner's own resolution of Secrets
+Manager references at deploy time goes through the VPC connector or through the
+App Runner managed environment. If it goes through the connector, secret
+injection breaks too, and the whole service fails to start rather than failing a
+feature. Tell me which it is.
+
+### 2. The RLS policy has a cast that will throw
+
+current_setting('app.workspace_id', true) returns NULL when the setting is
+missing, which is fine, but an empty string when it is set to one, and
+''::uuid raises. A request that sets the context to an empty value gets a
+database error rather than zero rows. Use:
+
+  nullif(current_setting('app.workspace_id', true), '')::uuid
+
+Add a test that hits the policy with the setting unset, set to empty, and set to
+a foreign workspace, and asserts zero rows in all three cases rather than an
+error in any of them.
+
+### 3. FORCE ROW LEVEL SECURITY applies to the table owner too
+
+You correctly enable FORCE, which is what stops the owner from bypassing
+policies. That also means migrations and backfills running as the owner are
+subject to the policies and will not be able to write across workspaces.
+
+Separate the roles: a migration/owner role that runs DDL and backfills, and the
+application role the runtime connects as. The application role owns nothing and
+has no BYPASSRLS. Say in the migration docs which role runs which command.
+
+### 4. The Postgres rate limiter is a denial-of-service amplifier
+
+Moving the limiter to Postgres is right for correctness across instances, but it
+inverts the cost of an attack: every unauthenticated request to /share/:token
+now becomes a database write. An attacker guessing tokens no longer just wastes
+CPU, they consume database capacity, which is the thing the whole service
+depends on.
+
+Keep a cheap in-process fixed-window counter in front of the shared one. Obvious
+floods are rejected in memory and never reach Postgres; the shared limiter exists
+to make the limit correct across instances, not to see every request. Say in the
+code why there are two.
+
+### 5. CloudFront must never cache /share, /api or /mcp
+
+A cached handoff redemption served to a second viewer is a data leak, and it is
+exactly the kind of bug that looks like a performance win in a diff. The
+application already sends Cache-Control: no-store on redemptions, so use a cache
+policy that respects origin headers and add explicit no-cache behaviours for
+/api/*, /mcp and /share/* rather than relying on the origin header alone.
+
+Cache static assets only. Write a test or a documented manual check that fetches
+the same share link twice through CloudFront and asserts the second response was
+not served from cache.
+
+### 6. Size the connection pool against db.t4g.micro
+
+A t4g.micro allows on the order of eighty connections. App Runner scales to
+multiple instances and each will hold a pool, so the ceiling is instances times
+pool size, and exhausting it takes the whole service down rather than degrading
+it. Cap the pool per instance explicitly, document the arithmetic against the
+maximum instance count, and keep the DatabaseConnections alarm you already
+planned.
+
+### 7. Reconsider whether WAF earns its cost in v1
+
+A Web ACL plus rules plus request charges is roughly ten to fifteen dollars a
+month, which on this deployment is comparable to the database. Your reasoning for
+WAF over Turnstile is right, but the question is whether either belongs in the
+first deployment given the app-level limiter and the in-process pre-filter above.
+
+Give me the recommendation with the number attached. I am happy to pay for it if
+you think signup and share-link abuse are real at this stage; I do not want it
+because it appears on a diagram.
+
+### 8. Note the storage cost of search_text
+
+Denormalising message text into search_text doubles the stored size of every
+conversation. SQLite's FTS5 did the same, so this is not a regression, but say it
+in the schema comment, and make sure no SELECT * path pulls search_text back for
+listings that do not need it.
+
+## Rules
+
+- The ConversationStore interface and the MCP tool contract do not change.
+- SQLite stays the default when DATABASE_URL is absent. Self-hosting on one
+  machine is a product promise, not a fallback.
+- Separate commits: Postgres store, migrations, the SQLite migration script, the
+  Compose profile, then CDK. Each one green on its own.
+- npm test, npm run typecheck, npm run build and node scripts/smoke.mjs pass in
+  both SQLite and Postgres modes.
+- Everything must be runnable locally with docker compose, with no AWS account.
+
+## Report back with
+
+The egress decision and its cost, the answer on whether App Runner secret
+injection traverses the connector, the role split for migrations, the pool
+arithmetic, and your WAF recommendation with the number. Then stop. I want to
+read that before any CDK is written.

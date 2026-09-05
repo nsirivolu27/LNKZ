@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: lnkz
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d lnkz"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install server dependencies
+        run: npm ci --prefix mcp-server
+      - name: Install infrastructure dependencies
+        run: npm ci --prefix infra
+      - name: Create the non-owner Postgres test role
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -d lnkz \
+            -c "create role lnkz_app login password 'lnkz_app_password'"
+      - name: Migrate the Postgres test database
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/lnkz
+          DATABASE_SSL: "false"
+          LNKZ_DATABASE_APP_ROLE: lnkz_app
+        run: npm --prefix mcp-server run db:migrate
+      - name: Install web dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test
+        env:
+          DATABASE_SSL: "false"
+          LNKZ_POSTGRES_MIGRATION_URL: postgresql://postgres:postgres@127.0.0.1:5432/lnkz
+          LNKZ_POSTGRES_TEST_URL: postgresql://lnkz_app:lnkz_app_password@127.0.0.1:5432/lnkz
+        run: npm test
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Smoke test the running server
+        run: node scripts/smoke.mjs
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the deployable image
+        run: docker build -f mcp-server/Dockerfile -t lnkz:ci .

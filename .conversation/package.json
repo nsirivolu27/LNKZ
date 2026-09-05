@@ -1,0 +1,24 @@
+{
+  "name": "lnkz-web",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build:web": "vite build",
+    "build": "npm run build:web && npm --prefix mcp-server run build",
+    "preview": "vite preview",
+    "start": "npm --prefix mcp-server run start",
+    "mcp:dev": "npm --prefix mcp-server run dev",
+    "mcp:stdio": "npm --prefix mcp-server run mcp:stdio",
+    "infra:synth": "infra/node_modules/.bin/cdk synth",
+    "infra:diff": "infra/node_modules/.bin/cdk diff",
+    "test": "npm --prefix mcp-server test",
+    "typecheck": "tsc --noEmit && npm --prefix mcp-server run typecheck"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vite": "^5.4.11"
+  }
+}

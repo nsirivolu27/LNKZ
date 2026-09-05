@@ -1,0 +1,35 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+build/
+dist/
+*.sqlite3
+.idea/
+.vscode/
+.DS_Store
+node_modules/
+.data/
+mcp-server/.data/
+backend/media/
+backend/staticfiles/
+pipeline/.pytest_cache/
+geo-service/target/
+*.log
+
+# LNKZ SQLite store
+.data/
+*.db
+*.db-wal
+*.db-shm
+.testbuild/
+
+# Generated, transient, or local-only. None of this belongs in the repository.
+dist/
+graphify-out/
+_to_delete/
+Claude outputs/
+*.log
+*.bundle
+*.tgz

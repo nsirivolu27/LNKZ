@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "graphify": {
+      "type": "stdio",
+      "command": "C:\\Users\\nsiri\\AppData\\Roaming\\uv\\tools\\graphifyy\\Scripts\\python.exe",
+      "args": ["-m", "graphify.serve", "graphify-out/graph.json"]
+    },
+    "lnkz": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["mcp-server/dist/stdio.js"],
+      "env": {
+        "LNKZ_DB_FILE": ".data/lnkz.db"
+      }
+    }
+  }
+}

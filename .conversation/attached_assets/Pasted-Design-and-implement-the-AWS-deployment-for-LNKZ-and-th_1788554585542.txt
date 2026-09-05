@@ -1,0 +1,137 @@
+Design and implement the AWS deployment for LNKZ, and the Postgres store it
+needs. Repo: https://github.com/nsirivolu27/LNKZ, branch lnkz-mcp-relay.
+
+Read ARCHITECTURE.md, DEPLOY.md, mcp-server/src/store/ and mcp-server/src/auth.ts
+before designing anything.
+
+## What LNKZ is today
+
+One Node process serving a static site, a REST API and a stateless MCP Streamable
+HTTP endpoint. SQLite through node:sqlite with FTS5 for ranked search. A single
+shared API key. An in-process rate limiter. Deployed nowhere yet; fly.toml and
+render.yaml exist and work.
+
+Identity is being built separately right now: accounts, workspaces, scrypt
+password hashing, server-side sessions, scoped API tokens, with authorization
+enforced inside ConversationStore rather than in route middleware. Do not replace
+that with Cognito. LNKZ must stay self-hostable, so identity stays in the
+application and AWS provides infrastructure, not accounts.
+
+## Target architecture
+
+- AWS App Runner, from the existing mcp-server/Dockerfile via ECR. It gives TLS,
+  a custom domain and autoscaling without hand-building a VPC and load balancer.
+- RDS PostgreSQL db.t4g.micro, private, not publicly accessible. Free tier for
+  twelve months and about $13 a month after, which is the right call for a
+  portfolio project. If I later need scale-to-zero, Aurora Serverless v2 is a
+  swap, not a redesign. Note the cost difference in the docs so the choice is
+  visible.
+- App Runner VPC connector so the service reaches RDS privately.
+- Secrets Manager for the database credentials, the bootstrap API key and all
+  connector credentials. Referenced by App Runner, never baked into the image and
+  never in plaintext environment variables.
+- KMS customer managed key for envelope encryption of connector credentials at
+  rest, and for the RDS encryption key.
+- S3 with Block Public Access and SSE-KMS for database backups and generated
+  exports.
+- CloudWatch Logs with structured JSON, plus alarms on 5xx rate, p99 latency and
+  database connections.
+- Infrastructure as AWS CDK in TypeScript, in an infra/ directory. Same language
+  as the rest of the repo, and the stack reads as code rather than as yaml.
+
+## The Postgres store
+
+Write PostgresConversationStore implementing the existing ConversationStore
+interface. Do not change the interface. SQLite stays the default for local
+development and for anyone self-hosting on one machine; Postgres is selected by
+DATABASE_URL being present.
+
+The search translation is the part to get right, and it is not a rewrite:
+
+- FTS5 virtual table becomes a tsvector column with a GIN index
+- bm25() ranking becomes ts_rank_cd, weighted toward the title with setweight
+- snippet() becomes ts_headline
+- The AND-then-OR fallback on user queries stays, because a raw query string is
+  still not a valid tsquery and websearch_to_tsquery is the right parser for it
+
+Migrations: node-pg-migrate or plain SQL files with a version table. Mirror what
+PRAGMA user_version does today. Write the SQLite to Postgres migration as a
+script with a dry run, and test it against a seeded SQLite file.
+
+Row level security actually applies here, unlike SQLite. Once workspaces exist,
+add RLS policies on every tenant table as defense in depth behind the
+application's own workspace filtering. Belt and braces: the query is scoped and
+the database refuses anyway.
+
+## Move what cannot be single-instance
+
+App Runner runs more than one container. Two things assume one process:
+
+- The in-process fixed-window rate limiter. Move it to a Postgres table with a
+  cleanup, rather than adding ElastiCache for one feature. Note the tradeoff.
+- Resource subscriptions, which are stdio-only today and stay that way. Do not
+  try to make them work here. Making them work over HTTP needs a session-bound
+  transport with a resumable event stream and shared state, which is a feature,
+  not a config change.
+
+## Security, mapped to a specific checklist
+
+Work through these and either implement or tell me in writing why it does not
+apply. Several are already done; verify before rewriting.
+
+ 1 Hide API keys              Secrets Manager. Nothing secret in the image, the
+                              repo, or the client bundle. Verify the built site.
+ 2 Purge Git secrets          Scan the full history. Add a CI secret scanner.
+ 3 No DB creds in the browser The browser never talks to the database. RDS is
+                              private with no public accessibility. Verify.
+ 4 Row level security         Real Postgres RLS policies, behind the application
+                              scoping, not instead of it.
+ 5 Encrypt sensitive data     KMS envelope encryption for connector credentials.
+                              RDS encrypted at rest, TLS in transit, enforced.
+ 6 Server-side auth           Already in flight. Do not duplicate it.
+ 7 Lock record access         Deny by default on every new endpoint.
+ 8 Block field tampering      Zod strips unknown keys so no client can set role,
+                              workspaceId, userId or createdAt through a body.
+ 9 Secure session cookies     HttpOnly, Secure, SameSite=Lax, rotated on login.
+10 Hash passwords             scrypt from node:crypto. Already decided.
+11 Rate limit login           Shared store, per account lockout, backoff.
+12 Bot protection             CloudFront with WAF rate rules in front of App
+                              Runner, or Turnstile on signup. Pick one, say why.
+13 Parameterize queries       Already true. Keep it true with node-postgres.
+14 Validate all input         Zod on bodies, query params and path params.
+15 Escape user content        Audit every innerHTML. Add a CSP that catches a miss.
+16 Restrict file uploads      Body caps, content type checks, conversation and
+                              message count caps on import.
+17 Trim API responses         No cross-workspace ids in any response.
+18 Security headers           CSP, HSTS, X-Content-Type-Options, Referrer-Policy,
+                              frame-ancestors.
+19 Force HTTPS                App Runner terminates TLS. Add HSTS and app-level
+                              enforcement with a safe local development mode.
+20 Scan dependencies          npm audit in CI, ECR image scanning, Dependabot.
+
+One threat to design out explicitly, because it is the common failure in
+AI-built apps: the client keeps the user's role in localStorage, the UI reads it
+to decide what to show, and anyone can open DevTools, change member to admin,
+refresh, and get the admin panel with real data behind it because the server
+trusted the client. The browser must hold no role, permission, entitlement or
+feature flag that any server decision depends on. Assume every value the client
+stores is attacker controlled, because it is, and make sure that gains them
+nothing.
+
+## Rules
+
+- Do not change the ConversationStore interface or the MCP tool contract.
+- SQLite must keep working. Self-hosting on one machine is a product promise.
+- Everything must run locally with docker compose and Postgres, so the AWS path
+  is testable without an AWS account.
+- npm test, npm run typecheck, npm run build and node scripts/smoke.mjs all pass.
+  Extend the smoke test to run against Postgres as well as SQLite.
+- Estimate the monthly cost in DEPLOY.md, itemized, and say which line item is
+  the one that surprises people.
+
+## Start by
+
+Reading the repo and giving me: the CDK stack layout, the Postgres schema with
+the tsvector and index strategy, the migration and dry run plan, how secrets
+reach the container, and anything in the current design that fights this. Do not
+write code until I have seen that.
