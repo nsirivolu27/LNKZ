@@ -4,7 +4,7 @@
 
 This repository contains the focused LNKZ relay workflow: the stateless MCP server, REST API,
 conversation import/export pipeline, context intelligence, handoffs, storage, connectors, and
-deployment configuration. The LLMM product console and main MCP repository live separately.
+deployment configuration. The main MCP repository lives separately.
 
 ## What it does
 
@@ -83,4 +83,4 @@ Production starts fail closed unless `LNKZ_API_KEY` or `LNKZ_API_KEYS_JSON` is c
 ## Compatibility
 
 The `LNKZ_*` environment variables, MCP names, tool names, and `lnkz://` resource URIs are stable
-compatibility contracts. The workflow intentionally remains independent of the LLMM console.
+compatibility contracts. The workflow intentionally remains independent of any user interface.
