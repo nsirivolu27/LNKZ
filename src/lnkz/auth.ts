@@ -1,6 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
-import { defaultRequestContext, hasScope, runWithRequestContext, type Scope } from "./context.js";
+import {
+  currentRequestContext,
+  defaultRequestContext,
+  hasScope,
+  MCP_CONTEXT_HEADER,
+  runWithRequestContext,
+  verifyMcpContext,
+  type Scope,
+} from "./context.js";
 import type { ApiPrincipal } from "./config.js";
 
 function equalSecret(actual: string, expected: string): boolean {
@@ -28,28 +36,66 @@ export function createApiKeyMiddleware(
   principals: ApiPrincipal[],
   required: boolean,
   defaultWorkspaceId: string,
+  options: {
+    allowForwardedContext?: boolean;
+    forwardedContextSecret?: string;
+    requiredForwardedScope?: Scope;
+    now?: () => number;
+  } = {},
 ): (request: Request, response: Response, next: NextFunction) => void {
   return (request, response, next) => {
+    // A managed identity middleware may establish context only after resolving
+    // explicit Postgres workspace membership. Never replace that trusted result
+    // with a caller-controlled forwarding header.
+    const established = currentRequestContext();
+    if (established?.authMethod === "managed" || established?.authMethod === "api-key") {
+      next();
+      return;
+    }
+
     const header = request.header("authorization") ?? "";
     const actual = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
     const principal = actual
       ? principals.find((candidate) => equalSecret(actual, candidate.key))
       : undefined;
 
-    if (!principal && (required || actual)) {
+    if (actual && !principal) {
       response.status(401).json({ error: "Unauthorized" });
       return;
     }
 
-    const context = principal
-      ? {
-          workspaceId: principal.workspaceId,
-          actorId: principal.actorId,
-          scopes: new Set(principal.scopes),
-          authMethod: "api-key" as const,
-        }
-      : defaultRequestContext(defaultWorkspaceId);
-    runWithRequestContext(context, next);
+    if (principal) {
+      runWithRequestContext({
+        workspaceId: principal.workspaceId,
+        actorId: principal.actorId,
+        scopes: new Set(principal.scopes),
+        authMethod: "api-key",
+      }, next);
+      return;
+    }
+
+    const forwarded = request.header(MCP_CONTEXT_HEADER);
+    if (options.allowForwardedContext && forwarded) {
+      const context = options.forwardedContextSecret
+        ? verifyMcpContext(forwarded, options.forwardedContextSecret, {
+            now: options.now?.(),
+            requiredScope: options.requiredForwardedScope,
+          })
+        : null;
+      if (!context) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      runWithRequestContext(context, next);
+      return;
+    }
+
+    if (required) {
+      response.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    runWithRequestContext(defaultRequestContext(defaultWorkspaceId), next);
   };
 }
 

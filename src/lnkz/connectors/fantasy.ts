@@ -1,10 +1,12 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { mcpContextHeaders } from "../context.js";
 import type { Connector, ContextItem } from "../types.js";
 
 export function createFantasyConnector(env: NodeJS.ProcessEnv = process.env): Connector | null {
   const url = env.FANTASY_MCP_URL?.trim();
   const apiKey = env.FANTASY_MCP_API_KEY?.trim();
+  const contextSecret = env.LNKZ_MCP_CONTEXT_SECRET;
   if (!url) return null;
 
   return {
@@ -18,7 +20,7 @@ export function createFantasyConnector(env: NodeJS.ProcessEnv = process.env): Co
     }),
     search: async (query, limit) => {
       const client = new Client({ name: "lnkz", version: "0.1.0" });
-      const headers: Record<string, string> = {};
+      const headers = mcpContextHeaders(contextSecret);
       if (apiKey) headers.authorization = `Bearer ${apiKey}`;
       const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } });
       try {

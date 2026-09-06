@@ -11,6 +11,7 @@ export interface McpConfig {
   enabled: boolean;
   path: string;
   authRequired: boolean;
+  contextSecret?: string;
 }
 
 export interface AppConfig {
@@ -50,6 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const mcpEnabled = boolean(env.LNKZ_MCP_ENABLED, true);
   const apiKey = env.LNKZ_API_KEY?.trim();
   const mcpAuthRequired = boolean(env.LNKZ_MCP_API_KEY_REQUIRED, false);
+  const contextSecret = optionalContextSecret(env.LNKZ_MCP_CONTEXT_SECRET);
   const allowUnauthenticated = boolean(env.LNKZ_ALLOW_UNAUTHENTICATED, env.NODE_ENV !== "production");
   const defaultWorkspaceId = env.LNKZ_POSTGRES_WORKSPACE_ID?.trim() || DEFAULT_WORKSPACE_ID;
   validateUuid(defaultWorkspaceId, "LNKZ_POSTGRES_WORKSPACE_ID");
@@ -83,6 +85,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       enabled: mcpEnabled,
       path: mcpPath,
       authRequired: mcpAuthRequired,
+      contextSecret,
     },
     auth: {
       mode: authMode,
@@ -214,4 +217,12 @@ function validateUuid(value: string, name: string): void {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
     throw new Error(`${name} must be a UUID.`);
   }
+}
+
+function optionalContextSecret(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (Buffer.byteLength(value, "utf8") < 32) {
+    throw new Error("LNKZ_MCP_CONTEXT_SECRET must contain at least 32 bytes.");
+  }
+  return value;
 }

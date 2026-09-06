@@ -3,6 +3,23 @@
 LNKZ exposes stateless Streamable HTTP at `POST /mcp` and stdio through `dist/stdio.mjs`.
 When authentication is enabled, send `Authorization: Bearer <key>`.
 
+## Multi-node context forwarding
+
+Set the same high-entropy `LNKZ_MCP_CONTEXT_SECRET` on LNKZ nodes that are allowed to trust one
+another. During an authenticated MCP request, outbound federation and publish-discovery calls add
+an opaque `x-lnkz-context` value. It is an HMAC-SHA-256 envelope containing the workspace ID,
+actor ID, scopes, a short expiry, and trace information. The default lifetime is 60 seconds and a
+receiver refuses envelopes whose signed lifetime exceeds five minutes.
+
+The header is accepted only by the MCP authentication boundary. Plain workspace headers are never
+trusted. A valid API key or a managed-auth context takes precedence, and malformed, expired,
+incorrectly scoped, or incorrectly signed envelopes fail closed. Do not put the shared secret in a
+URL, MCP argument, log, response, or source file. Rotate it as a coordinated deployment across all
+trusted nodes; during rotation, nodes using different secrets will reject forwarded requests.
+
+`GET /health` reports only whether forwarding is enabled. It never returns the secret or an
+envelope.
+
 ## MCP tools
 
 ### Conversations
@@ -66,6 +83,7 @@ When authentication is enabled, send `Authorization: Bearer <key>`.
 | `LNKZ_ALLOW_UNAUTHENTICATED` | Explicit local-development escape hatch |
 | `LNKZ_MCP_PATH` | MCP HTTP path, default `/mcp` |
 | `LNKZ_MCP_API_KEY_REQUIRED` | Require a key for MCP requests |
+| `LNKZ_MCP_CONTEXT_SECRET` | Shared HMAC secret for trusted multi-node MCP context forwarding; minimum 32 bytes |
 | `DATABASE_URL` | Switch from SQLite to Postgres |
 | `LNKZ_DATABASE_APP_ROLE` | Runtime Postgres role granted by migrations |
 | `LNKZ_MCP_TARGETS` | Downstream MCP targets for publish preparation |

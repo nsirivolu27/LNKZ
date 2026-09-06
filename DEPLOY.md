@@ -26,6 +26,7 @@ LNKZ_PUBLIC_BASE_URL=https://lnkz.example.com
 ALLOWED_HOSTS=lnkz.example.com
 ALLOWED_ORIGINS=https://lnkz.example.com
 LNKZ_MCP_API_KEY_REQUIRED=true
+LNKZ_MCP_CONTEXT_SECRET=...
 ```
 
 Production fails during startup when authentication is not configured. Do not use
@@ -33,6 +34,12 @@ Production fails during startup when authentication is not configured. Do not us
 
 If a reverse proxy overwrites `X-Forwarded-For`, set `LNKZ_TRUST_PROXY=true`; otherwise leave it
 false so clients cannot spoof rate-limit identity.
+
+`LNKZ_MCP_CONTEXT_SECRET` is needed only when one LNKZ node calls another without a target-specific
+API key and must preserve the authenticated actor context. Generate at least 32 random bytes and
+store the value in the deployment secret manager. Every mutually trusting node must use the same
+value. Never expose it through client configuration, logs, health checks, or committed environment
+files. Nodes without the value keep forwarding disabled and still support ordinary API-key MCP.
 
 ## Postgres
 
@@ -50,7 +57,8 @@ Postgres and `LNKZ_AUTH_MODE=multi-key`.
 
 ## Health and rollout checks
 
-- `GET /health` returns the service, MCP path, auth status, and connector configuration.
+- `GET /health` returns the service, MCP path, auth status, connector configuration, and only the
+  enabled/disabled state of context forwarding.
 - `POST /mcp` must be tested with an authorized bearer key.
 - `/share/:token` is intentionally bearer-based, rate-limited, and uncached.
 - Never cache `/api/*`, `/mcp`, or `/share/*` at a reverse proxy.

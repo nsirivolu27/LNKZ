@@ -53,13 +53,23 @@ const authenticate = createApiKeyMiddleware(
   config.auth.apiKeyRequired,
   config.auth.defaultWorkspaceId,
 );
+const authenticateMcp = createApiKeyMiddleware(
+  config.auth.principals,
+  config.auth.apiKeyRequired,
+  config.auth.defaultWorkspaceId,
+  {
+    allowForwardedContext: true,
+    forwardedContextSecret: config.mcp.contextSecret,
+    requiredForwardedScope: "mcp",
+  },
+);
 const requireApiKey = (request: express.Request, response: express.Response, next: express.NextFunction): void => {
   authenticate(request, response, () => {
     requireScope(request.method === "GET" ? "read" : "write")(request, response, next);
   });
 };
 const requireMcpAuth = (request: express.Request, response: express.Response, next: express.NextFunction): void => {
-  authenticate(request, response, () => {
+  authenticateMcp(request, response, () => {
     requireScope("mcp")(request, response, next);
   });
 };
@@ -99,6 +109,7 @@ app.get("/health", (_request, response) => {
       enabled: config.mcp.enabled,
       path: config.mcp.path,
       authRequired: config.mcp.authRequired,
+      contextForwarding: { enabled: Boolean(config.mcp.contextSecret) },
     },
     connectors: connectorStatuses(core).map(({ id, configured }) => ({ id, configured })),
   });

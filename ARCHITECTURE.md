@@ -37,6 +37,11 @@ Handoff tokens are random bearer secrets. Only their hashes are stored. Handoffs
 maximum uses, revocation, audience, optional redaction, and audit events. Share redemption is
 rate-limited and returned with `no-store` and `noindex`; deploy behind TLS.
 
+Trusted MCP nodes propagate request identity with a short-lived HMAC envelope in
+`x-lnkz-context`. The envelope carries workspace, actor, scopes, expiry, and trace data; it is not a
+replacement for end-user authentication. API-key and managed-auth contexts win over forwarded
+context, and unsigned workspace headers never reach the storage boundary.
+
 ## Intelligence
 
 Import detection, normalization, decisions, open questions, actions, topics, conflicts, duplicate

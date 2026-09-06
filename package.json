@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
+    "test": "tsc -p tsconfig.test.json && node --test .testbuild/tests/*.test.js",
+    "verify:http": "node ./scripts/verify-http.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "db:migrate": "node --enable-source-maps ./dist/lnkz/store/migrate.mjs"
