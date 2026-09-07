@@ -18,7 +18,10 @@ export async function runPostgresMigrations(databaseUrl = process.env.DATABASE_U
   if (!databaseUrl) throw new Error("DATABASE_URL is required to run Postgres migrations.");
   const pool = new Pool({ connectionString: databaseUrl, ssl: postgresSsl(), max: 1 });
   const migrationsDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "migrations");
-  const client = await pool.connect();
+  const client = await pool.connect().catch(async () => {
+    await pool.end();
+    throw new Error("Cannot connect for migration; check DATABASE_URL and DATABASE_SSL.");
+  });
   try {
     await client.query("begin");
     await client.query(`
@@ -70,7 +73,7 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
   runPostgresMigrations()
     .then((version) => console.log(`[db] Postgres schema is at version ${version}`))
     .catch((error) => {
-      console.error(`[db] migration failed: ${error instanceof Error ? error.message : error}`);
+      console.error("[db] Migration failed. Check DATABASE_URL, DATABASE_SSL, migration files and role permissions.");
       process.exitCode = 1;
     });
 }

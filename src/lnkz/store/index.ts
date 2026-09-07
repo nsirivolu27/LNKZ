@@ -32,7 +32,7 @@ export interface ConversationStore {
   recordEvent(event: Omit<AuditEvent, "id" | "at"> & { at?: string }): Promise<void>;
   listEvents(limit: number): Promise<AuditEvent[]>;
   stats(): Promise<StoreStats>;
-  close(): void;
+  close(): void | Promise<void>;
 }
 
 export { SqliteConversationStore } from "./sqlite.js";

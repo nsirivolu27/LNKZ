@@ -344,8 +344,8 @@ export class PostgresConversationStore implements ConversationStore {
     });
   }
 
-  close(): void {
-    void this.pool.end();
+  async close(): Promise<void> {
+    await this.pool.end();
   }
 
   private async assertSchema(): Promise<void> {
@@ -353,9 +353,9 @@ export class PostgresConversationStore implements ConversationStore {
       "select version from schema_migrations order by version desc limit 1",
     );
     const version = Number(result.rows[0]?.version ?? 0);
-    if (version < REQUIRED_POSTGRES_SCHEMA_VERSION) {
+    if (version !== REQUIRED_POSTGRES_SCHEMA_VERSION) {
       throw new Error(
-        `Postgres schema is behind (found ${version}, need ${REQUIRED_POSTGRES_SCHEMA_VERSION}); run npm run db:migrate before starting LNKZ.`,
+        `Postgres schema is incompatible (found ${version}, need ${REQUIRED_POSTGRES_SCHEMA_VERSION}); run pnpm db:migrate before starting LNKZ.`,
       );
     }
   }
