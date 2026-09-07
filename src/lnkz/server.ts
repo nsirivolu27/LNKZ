@@ -24,6 +24,7 @@ import {
   conflictSchema,
   contextPacketSchema,
   contextSearchSchema,
+  continueConversationSchema,
   conversationInputSchema,
   createHandoffSchema,
   duplicateSchema,
@@ -243,6 +244,44 @@ app.post("/api/conversations/:id/handoffs", requireApiKey, apiLimiter, sharedApi
 
 app.get("/api/handoffs", requireApiKey, async (request, response) => {
   response.json({ handoffs: await store.listHandoffs(stringParam(request.query.conversationId)) });
+});
+
+/**
+ * Redeem a handoff and store the continuation as a new conversation.
+ *
+ * Redemption alone is `GET /share/:token` and is deliberately unauthenticated,
+ * because a share link has to work for someone who has no key. Continuing is a
+ * write into this workspace, so it takes a key and lives here instead.
+ */
+app.post("/api/handoffs/continue", requireApiKey, apiLimiter, sharedApiLimiter, async (request, response) => {
+  try {
+    const options = continueConversationSchema.parse(request.body);
+    const packet = await store.redeemHandoff(options.token);
+    if (!packet) {
+      response.status(404).json({ error: "Handoff is invalid, revoked, exhausted, or expired." });
+      return;
+    }
+
+    const parent = packet.conversation;
+    const conversation = await store.save({
+      title: options.title || `${parent.title} (continued in ${options.provider})`,
+      summary: parent.summary,
+      source: { provider: options.provider, app: options.app },
+      participants: parent.participants,
+      tags: [...new Set([...parent.tags, "continuation"])],
+      messages: [...parent.messages, ...options.messages],
+      lineage: {
+        parentId: parent.id,
+        rootId: parent.lineage?.rootId ?? parent.id,
+        handoffId: packet.handoff.id,
+        continuedBy: options.provider,
+      },
+    });
+
+    response.status(201).json({ conversation, parentId: parent.id });
+  } catch (error) {
+    badRequest(response, error);
+  }
 });
 
 app.delete("/api/handoffs/:id", requireApiKey, async (request, response) => {

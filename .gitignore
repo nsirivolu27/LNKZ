@@ -7,3 +7,12 @@ dist/
 *.db-shm
 *.db-wal
 .DS_Store
+
+# Generated, transient, or local only. None of this belongs in the repository.
+_to_delete/
+graphify-out/
+Claude outputs/
+rsna-knee-abnormality-detection/
+*.log
+*.bundle
+*.tgz
