@@ -62,3 +62,22 @@ Postgres and `LNKZ_AUTH_MODE=multi-key`.
 - `POST /mcp` must be tested with an authorized bearer key.
 - `/share/:token` is intentionally bearer-based, rate-limited, and uncached.
 - Never cache `/api/*`, `/mcp`, or `/share/*` at a reverse proxy.
+
+## Configuration
+
+| Variable | Purpose |
+| --- | --- |
+| `LNKZ_API_KEY` | Compatibility bearer key; required in production |
+| `LNKZ_API_KEYS_JSON` | Multi-workspace static principals |
+| `LNKZ_AUTH_MODE` | `static` or `multi-key`; multi-key requires Postgres |
+| `LNKZ_ALLOW_UNAUTHENTICATED` | Explicit local-development escape hatch |
+| `LNKZ_MCP_PATH` | MCP HTTP path, default `/mcp` |
+| `LNKZ_MCP_API_KEY_REQUIRED` | Require a key for MCP requests |
+| `LNKZ_MCP_CONTEXT_SECRET` | Shared HMAC secret for trusted multi-node MCP context forwarding; minimum 32 bytes |
+| `DATABASE_URL` | Switch from SQLite to Postgres |
+| `LNKZ_DATABASE_APP_ROLE` | Runtime Postgres role granted by migrations |
+| `LNKZ_MCP_TARGETS` | Downstream MCP targets for publish preparation |
+| `SLACK_*`, `JIRA_*`, `FIGMA_*`, `DOCUMENT_FEED_*` | Optional read-only connectors |
+
+All connector credentials stay in environment configuration and are never passed as MCP tool
+arguments or persisted in conversation content by the relay itself.

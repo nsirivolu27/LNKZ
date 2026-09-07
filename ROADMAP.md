@@ -1,25 +1,26 @@
-# LNKZ workflow roadmap
+# LNKZ roadmap
 
-## Current
+## Before a public demonstration
 
-- Provider-neutral conversation schema and portable imports/exports.
-- Deterministic context packets, analysis, graph, conflict, and duplicate detection.
-- Expiring, use-limited, revocable handoffs with hashed tokens and redaction.
-- SQLite and Postgres behind one `ConversationStore` contract.
-- Stateless HTTP MCP, stdio MCP, REST, read-only connectors, and publish preparation.
-- Static workspace principals and scoped MCP authorization.
+- Validate a hosted instance, its persistent storage and its smoke test.
+- Separate readiness from liveness, drain shutdowns, and make logs safe to collect.
+- Make migration and backup commands work from the built production artifact.
+- Record a repeatable save, handoff, import and continuation demonstration.
 
-## Next
+## Transfer completion
 
-- Managed OAuth/OIDC identity attached to workspace and actor context.
-- Workspace administration, membership, roles, and API-key lifecycle UI in the main product.
-- Envelope encryption, retention, deletion, and export controls.
-- Shared rate limiting and operational metrics for multi-instance deployments.
-- Incremental connector sync with explicit per-user consent.
+- Publish instance identity and sign packets independently of trusted-node HMAC.
+- Verify the sender and packet contents, recording verification in lineage.
+- Make the SQLite-to-Postgres migration an accessible, verified command.
+- Preserve audit actors consistently across both stores.
 
-## Later
+## Scope boundaries
 
-- Embeddings behind the existing search interface.
-- Claim-level deduplication and citation graphs.
-- Browser capture, mobile share sheet, and QR handoffs.
-- Connector SDK and deliberate write-back workflows.
+This relay does not need a web console, accounts, embeddings, a queue, a cache
+service or a message bus. Text messages and one-parent lineage remain the
+conversation model. Optional future work includes attachment portability,
+claim-level citations, and deliberate connector write-back after the core
+operational path is proven.
+
+[CHANGELOG.md](CHANGELOG.md) records completed changes; [ARCHITECTURE.md](ARCHITECTURE.md)
+describes current implementation rather than future promises.
