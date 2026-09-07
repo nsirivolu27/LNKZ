@@ -2,12 +2,30 @@
 
 **Portable conversation workflow for moving useful context between LLMs, apps, devices, and people.**
 
-This repository contains the focused LNKZ relay workflow: the stateless MCP server, REST API,
-conversation import/export pipeline, context intelligence, handoffs, storage, connectors, and
-deployment configuration. It is intentionally independent of the
-[`nsirivolu27/LLMM`](https://github.com/nsirivolu27/LLMM) product repository: LLMM owns its web
-console and product UI, while LNKZ remains a standalone relay/MCP workflow with no LLMM-specific
-branding or frontend code.
+## Where this work lives now
+
+LNKZ was one repository holding both the relay and the MCP server. Those are two different
+things with two different lifecycles, so they now live in two places:
+
+| Repository | What it owns |
+| --- | --- |
+| [`nsirivolu27/LLMM`](https://github.com/nsirivolu27/LLMM) | The LLMM product: web console, product UI, deployment assets, and the LNKZ REST relay under `relay/`. |
+| [`nsirivolu27/lnkz-mcp`](https://github.com/nsirivolu27/lnkz-mcp) | The configurable MCP adapter, and nothing else. It reaches the relay over the authenticated REST API, configured with `LNKZ_BASE_URL` and `LNKZ_API_KEY`. |
+| This repository | The origin of both, kept as the standalone relay and its history. |
+
+Start in LLMM if you want the product. Start in lnkz-mcp if you want to point Claude Desktop or
+another MCP client at a relay. Start here if you want the relay on its own, or the history of how
+it got here.
+
+The compatibility contracts are the same in all three: the `LNKZ_` environment variable names, the
+MCP tool names, and the `lnkz://` resource URIs.
+
+## What this repository contains
+
+The focused LNKZ relay workflow: the stateless MCP server, REST API, conversation import and
+export pipeline, context intelligence, handoffs, storage, connectors, and deployment
+configuration. It carries no LLMM console, product UI, or LLMM-specific branding, and it is not
+where the LLMM product is developed.
 
 ## What it does
 
