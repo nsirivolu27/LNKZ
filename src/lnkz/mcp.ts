@@ -2,6 +2,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { z } from "zod";
 import { connectorStatuses } from "./connectors/index.js";
 import { importConversations } from "./import/index.js";
+import { fetchTransfer, TransferError } from "./transfer.js";
 import { analyzeConversation } from "./intel/analyze.js";
 import { detectConflicts, detectDuplicates } from "./intel/conflict.js";
 import { buildContextPacket } from "./intel/packet.js";
@@ -18,6 +19,7 @@ import {
   createHandoffSchema,
   duplicateSchema,
   importSchema,
+  importUrlSchema,
   listConversationsSchema,
   redeemHandoffSchema,
   revokeHandoffSchema,
@@ -52,6 +54,7 @@ export function createLnkzMcpServer(
   const writeTools = new Set([
     "save_conversation",
     "import_conversation",
+    "import_from_url",
     "append_messages",
     "delete_conversation",
     "create_handoff",
@@ -184,6 +187,49 @@ export function createLnkzMcpServer(
         ? matches.map((match) => `${match.id} — ${match.title} (relevance ${match.relevance})\n    ${match.snippet}`).join("\n")
         : "No saved conversations matched.";
       return ok(text, { matches });
+    },
+  );
+
+  server.registerTool(
+    "import_from_url",
+    {
+      title: "Pull a conversation from another LNKZ",
+      description:
+        "Fetches a LNKZ share link and stores the conversation here. This is how a conversation moves between two "
+        + "people running their own instances: they send a link, you import it, and it becomes yours, continuable "
+        + "without touching their server again. The lineage records which instance it came from.",
+      inputSchema: importUrlSchema.shape,
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (input) => {
+      const parsed = importUrlSchema.parse(input);
+      let transfer;
+      try {
+        transfer = await fetchTransfer(parsed.url);
+      } catch (error) {
+        if (error instanceof TransferError) return toolError(error.message);
+        return toolError(error instanceof Error ? error.message : "Transfer failed.");
+      }
+
+      if (parsed.dryRun) {
+        return ok(
+          `${transfer.origin.instance} offers "${transfer.conversation.title}" with `
+          + `${transfer.conversation.messages.length} messages. Nothing was written.`,
+          { origin: transfer.origin, warnings: transfer.warnings },
+        );
+      }
+
+      const conversation = await store.save({
+        ...transfer.conversation,
+        tags: [...new Set([...(transfer.conversation.tags ?? []), ...(parsed.tags ?? [])])],
+      });
+
+      const lines = [
+        `Imported "${conversation.title}" from ${transfer.origin.instance} as ${conversation.id}.`,
+        `It carried ${conversation.messages.length} messages and is now stored here.`,
+        ...transfer.warnings.map((warning) => `Warning: ${warning}`),
+      ];
+      return ok(lines.join("\n"), { conversation, origin: transfer.origin, warnings: transfer.warnings });
     },
   );
 

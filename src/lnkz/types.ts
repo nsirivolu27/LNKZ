@@ -32,6 +32,15 @@ export interface ConversationLineage {
   rootId?: string;
   handoffId?: string;
   continuedBy?: string;
+  /**
+   * Set when this conversation was pulled off another LNKZ instance. The origin
+   * keeps its own id, so the local id is ours and this records theirs. Without
+   * it a transferred conversation looks locally authored, and the chain that
+   * makes a handoff worth anything stops at the machine boundary.
+   */
+  originInstance?: string;
+  originConversationId?: string;
+  importedAt?: string;
 }
 
 export interface Conversation {

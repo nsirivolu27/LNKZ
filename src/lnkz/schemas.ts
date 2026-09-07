@@ -72,6 +72,12 @@ export const importSchema = z.object({
   dryRun: z.boolean().default(false),
 });
 
+export const importUrlSchema = z.object({
+  url: z.string().trim().min(1).max(2_048),
+  tags: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+  dryRun: z.boolean().default(false),
+});
+
 export const createHandoffSchema = z.object({
   conversationId: z.string().uuid(),
   ttlMinutes: z.number().int().min(5).max(10_080).default(60),

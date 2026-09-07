@@ -13,6 +13,7 @@ import {
 import { loadConfig } from "./config.js";
 import { connectorStatuses } from "./connectors/index.js";
 import { importConversations } from "./import/index.js";
+import { fetchTransfer, TransferError } from "./transfer.js";
 import { analyzeConversation } from "./intel/analyze.js";
 import { detectConflicts, detectDuplicates } from "./intel/conflict.js";
 import { buildContextPacket } from "./intel/packet.js";
@@ -29,6 +30,7 @@ import {
   createHandoffSchema,
   duplicateSchema,
   importSchema,
+  importUrlSchema,
   listConversationsSchema,
   searchConversationsSchema,
 } from "./schemas.js";
@@ -136,6 +138,46 @@ app.post("/api/conversations", requireApiKey, apiLimiter, sharedApiLimiter, asyn
     const conversation = await store.save(conversationInputSchema.parse(request.body));
     response.status(201).json({ conversation });
   } catch (error) {
+    badRequest(response, error);
+  }
+});
+
+/**
+ * Pull a conversation off another LNKZ instance's share link.
+ *
+ * This is the receiving half of a transfer. The sender mints an ordinary
+ * handoff; the recipient calls this with the link. The conversation lands in
+ * this store, with lineage recording which instance it came from, and is
+ * continuable here without touching the sender's server again.
+ */
+app.post("/api/conversations/import-url", requireApiKey, apiLimiter, sharedApiLimiter, async (request, response) => {
+  try {
+    const input = importUrlSchema.parse(request.body);
+    const transfer = await fetchTransfer(input.url);
+
+    if (input.dryRun) {
+      response.json({
+        origin: transfer.origin,
+        warnings: transfer.warnings,
+        preview: {
+          title: transfer.conversation.title,
+          provider: transfer.conversation.source.provider,
+          messages: transfer.conversation.messages.length,
+        },
+      });
+      return;
+    }
+
+    const conversation = await store.save({
+      ...transfer.conversation,
+      tags: [...new Set([...(transfer.conversation.tags ?? []), ...(input.tags ?? [])])],
+    });
+    response.status(201).json({ conversation, origin: transfer.origin, warnings: transfer.warnings });
+  } catch (error) {
+    if (error instanceof TransferError) {
+      response.status(422).json({ error: error.message });
+      return;
+    }
     badRequest(response, error);
   }
 });
