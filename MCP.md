@@ -3,6 +3,45 @@
 LNKZ exposes stateless Streamable HTTP at `POST /mcp` and stdio through `dist/lnkz/stdio.mjs`.
 When authentication is enabled, send `Authorization: Bearer <key>`.
 
+## Claude Desktop setup
+
+Build the repository using the README quick start, then open Claude Desktop's
+developer settings and edit its MCP configuration. Use absolute paths on your
+machine. This stdio process can share the local SQLite file with your HTTP server:
+
+```json
+{
+  "mcpServers": {
+    "lnkz": {
+      "command": "node",
+      "args": ["/absolute/path/LNKZ/dist/lnkz/stdio.mjs"],
+      "env": {
+        "NODE_ENV": "development",
+        "LNKZ_DB_FILE": "/absolute/path/LNKZ/.data/lnkz.db",
+        "LNKZ_PUBLIC_BASE_URL": "http://127.0.0.1:3100"
+      }
+    }
+  }
+}
+```
+
+On Windows, use JSON-escaped paths such as `C:\\path\\LNKZ\\dist\\lnkz\\stdio.mjs`
+and an absolute Node executable if it is not on the client's PATH. Restart the
+client after saving. Keep the HTTP process running when minting links so those
+links can be opened. For a hosted relay, use a client supporting Streamable
+HTTP at `/mcp` with its bearer key, or the separate
+[lnkz-mcp adapter](https://github.com/nsirivolu27/lnkz-mcp).
+
+After running `pnpm seed`, say:
+
+1. "Search my LNKZ conversations for the forecast model decision."
+2. "Build a context packet from those conversations, including what changed."
+3. "Save this conversation into LNKZ."
+4. "Create a redacted handoff for it, expiring in 30 minutes, with one use."
+
+In the receiving client: "Import this LNKZ share link, show its origin lineage,
+and continue from the decisions it contains." Supply the link privately.
+
 ## Multi-node context forwarding
 
 Set the same high-entropy `LNKZ_MCP_CONTEXT_SECRET` on LNKZ nodes that are allowed to trust one

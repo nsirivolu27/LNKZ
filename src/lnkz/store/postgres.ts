@@ -647,6 +647,9 @@ function normalizeLineage(lineage: ConversationLineage | undefined, selfId?: str
     rootId: lineage.rootId?.trim() || parentId || selfId,
     handoffId: lineage.handoffId?.trim() || undefined,
     continuedBy: lineage.continuedBy?.trim() || undefined,
+    originInstance: lineage.originInstance,
+    originConversationId: lineage.originConversationId,
+    importedAt: lineage.importedAt,
   };
 }
 

@@ -11,6 +11,9 @@ export const lineageSchema = z.object({
   rootId: z.string().uuid().optional(),
   handoffId: z.string().uuid().optional(),
   continuedBy: z.string().trim().max(120).optional(),
+  originInstance: z.string().url().max(2_048).optional(),
+  originConversationId: z.string().trim().max(240).optional(),
+  importedAt: z.string().datetime().optional(),
 });
 
 export const messageSchema = z.object({

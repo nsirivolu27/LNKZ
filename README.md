@@ -20,13 +20,28 @@ cd LNKZ
 corepack enable
 corepack pnpm install --frozen-lockfile
 pnpm build
-pnpm start
+pnpm demo
 ```
 
-In another terminal, run `pnpm seed`, then ask a connected MCP client:
-"What did we decide about the forecast model, and what changed later?"
-See [MCP.md](MCP.md) for connection settings. The local server uses
-http://127.0.0.1:3100. For public use, follow [DEPLOY.md](DEPLOY.md).
+The demo starts two temporary local instances, seeds A, asks what the forecast
+model decision was, hands a conversation to B, and continues it there. It prints
+real decisions and origin lineage, then closes both instances. No model or
+provider account is needed. It uses synthetic data and removes its temporary stores.
+
+Read the [recorded terminal output](docs/demo-output.txt) without installing
+anything, or play the [terminal recording](docs/demo.cast) with an asciicast
+player. [DEMO.md](DEMO.md) gives the same transfer as explicit commands.
+
+To keep your own local store, run `pnpm start`, then in another terminal:
+
+```bash
+pnpm seed
+pnpm ask "forecast model"
+```
+
+The answer includes the original gradient-boosting decision and its later
+reversal to a seasonal ARIMA baseline. Connect your model using
+[MCP.md](MCP.md#claude-desktop-setup). For public use, follow [DEPLOY.md](DEPLOY.md).
 
 ## Read next
 
