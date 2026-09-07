@@ -1,3 +1,4 @@
+import type { ConversationStore } from "../store/index.js";
 import { analyzeConversation, extractTopics } from "../intel/analyze.js";
 import { detectConflicts, detectDuplicates } from "../intel/conflict.js";
 import type { Conversation } from "../types.js";
@@ -301,4 +302,19 @@ function labelOf(graph: ConversationGraph, id: string): string {
 
 function conversationNode(id: string): string {
   return `conversation:${id}`;
+}
+
+/**
+ * The graph needs whole conversations, not summaries, because the claims come
+ * from message text. Recency is the bound: a graph over everything ever stored
+ * stops being readable long before it stops being computable.
+ */
+export async function loadRecent(store: ConversationStore, limit: number): Promise<Conversation[]> {
+  const summaries = await store.list({ limit });
+  const conversations: Conversation[] = [];
+  for (const summary of summaries) {
+    const conversation = await store.get(summary.id);
+    if (conversation) conversations.push(conversation);
+  }
+  return conversations;
 }

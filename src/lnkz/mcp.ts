@@ -5,7 +5,7 @@ import { importConversations } from "./import/index.js";
 import { analyzeConversation } from "./intel/analyze.js";
 import { detectConflicts, detectDuplicates } from "./intel/conflict.js";
 import { buildContextPacket } from "./intel/packet.js";
-import { registerSurfaces } from "./surfaces.js";
+import { registerSurfaces } from "./mcp-surfaces.js";
 import {
   analyzeSchema,
   appendMessagesSchema,
