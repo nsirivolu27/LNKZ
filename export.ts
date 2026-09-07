@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { EXPORT_FORMATS, exportConversation, type ExportFormat } from "../lnkz/export/index.js";
-import type { ConversationStore } from "../lnkz/store/index.js";
+import type { LnkzClientLike } from "./client.js";
+import { EXPORT_FORMATS, type ExportFormat } from "./contract.js";
 
 /**
  * Registration lives here rather than inline in mcp.ts and server.ts so that
@@ -10,14 +10,14 @@ import type { ConversationStore } from "../lnkz/store/index.js";
  * what makes concurrent work on this server survivable.
  */
 
-export const exportFormatSchema = z.enum(EXPORT_FORMATS as [ExportFormat, ...ExportFormat[]]);
+export const exportFormatSchema = z.enum([...EXPORT_FORMATS] as [ExportFormat, ...ExportFormat[]]);
 
 const exportSchema = {
   conversationId: z.string().uuid(),
   format: exportFormatSchema.default("markdown"),
 };
 
-export function registerExportTool(server: McpServer, store: ConversationStore): void {
+export function registerExportTool(server: McpServer, client: LnkzClientLike): void {
   server.registerTool(
     "export_conversation",
     {
@@ -31,11 +31,7 @@ export function registerExportTool(server: McpServer, store: ConversationStore):
       annotations: { readOnlyHint: true },
     },
     async ({ conversationId, format }) => {
-      const conversation = await store.get(conversationId);
-      if (!conversation) {
-        return { isError: true as const, content: [{ type: "text" as const, text: "Conversation not found." }] };
-      }
-      const result = exportConversation(conversation, format);
+      const result = await client.exportConversation(conversationId, format);
       return {
         content: [{ type: "text" as const, text: result.body }],
         structuredContent: {

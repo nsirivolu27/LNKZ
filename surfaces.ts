@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerExportTool } from "./export.js";
 import { registerGraphTools } from "./graph.js";
 import { registerPublishTools } from "./publish.js";
-import type { ConversationStore } from "../lnkz/store/index.js";
+import type { LnkzClientLike } from "./client.js";
 
 /**
  * Every MCP surface that lives outside mcp.ts, registered in one place.
@@ -14,8 +14,8 @@ import type { ConversationStore } from "../lnkz/store/index.js";
  * out of this repository, and a shared file would have to be cut in half on
  * the way.
  */
-export function registerSurfaces(server: McpServer, store: ConversationStore): void {
-  registerExportTool(server, store);
-  registerGraphTools(server, store);
-  registerPublishTools(server, store);
+export function registerSurfaces(server: McpServer, client: LnkzClientLike): void {
+  registerExportTool(server, client);
+  registerGraphTools(server, client);
+  registerPublishTools(server, client);
 }

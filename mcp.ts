@@ -1,10 +1,6 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { connectorStatuses } from "../lnkz/connectors/index.js";
-import { importConversations } from "../lnkz/import/index.js";
-import { analyzeConversation } from "../lnkz/intel/analyze.js";
-import { detectConflicts, detectDuplicates } from "../lnkz/intel/conflict.js";
-import { buildContextPacket } from "../lnkz/intel/packet.js";
+import { LnkzApiError, type LnkzClientLike } from "./client.js";
 import { registerSurfaces } from "./surfaces.js";
 import {
   analyzeSchema,
@@ -22,19 +18,15 @@ import {
   redeemHandoffSchema,
   revokeHandoffSchema,
   searchConversationsSchema,
-} from "../lnkz/schemas.js";
-import { aggregateSearch } from "../lnkz/search.js";
-import { conversationToMarkdownWithAnalysis, type ConversationStore } from "../lnkz/store/index.js";
-import { hasScope } from "../lnkz/context.js";
-import type { Connector, Conversation, ConversationInput } from "../lnkz/types.js";
+  type Conversation,
+  type ConversationAnalysis,
+  type ConversationInput,
+  type MessageInput,
+} from "./contract.js";
 
 export const LNKZ_VERSION = "0.2.0";
 
-export function createLnkzMcpServer(
-  store: ConversationStore,
-  connectors: Connector[],
-  publicBaseUrl = process.env.LNKZ_PUBLIC_BASE_URL || "http://localhost:3100",
-): McpServer {
+export function createLnkzMcpServer(client: LnkzClientLike): McpServer {
   const server = new McpServer(
     { name: "lnkz", version: LNKZ_VERSION },
     {
@@ -46,19 +38,7 @@ export function createLnkzMcpServer(
       ].join(" "),
     },
   );
-  const coreConnector = connectors.find((connector) => connector.id === "lnkz");
-  const shareUrl = (token: string) => `${publicBaseUrl.replace(/\/$/, "")}/share/${token}`;
   const originalRegisterTool = server.registerTool.bind(server);
-  const writeTools = new Set([
-    "save_conversation",
-    "import_conversation",
-    "append_messages",
-    "delete_conversation",
-    "create_handoff",
-    "redeem_handoff",
-    "continue_handoff",
-    "revoke_handoff",
-  ]);
   const register = originalRegisterTool as unknown as (
     name: string,
     config: unknown,
@@ -66,9 +46,11 @@ export function createLnkzMcpServer(
   ) => unknown;
   server.registerTool = ((name: string, config: unknown, handler: (input: unknown) => Promise<unknown>) =>
     register(name, config, async (input: unknown) => {
-      const scope = writeTools.has(name) ? "write" : "read";
-      if (!hasScope(scope)) return toolError(`The ${scope} scope is required for ${name}.`);
-      return handler(input);
+      try {
+        return await handler(input);
+      } catch (error) {
+        return toolError(error instanceof Error ? error.message : "LNKZ request failed.");
+      }
     })) as typeof server.registerTool;
 
   // ---------------------------------------------------------------- conversations
@@ -82,7 +64,7 @@ export function createLnkzMcpServer(
       annotations: { readOnlyHint: false, idempotentHint: false },
     },
     async (input) => {
-      const conversation = await store.save(conversationInputSchema.parse(input) as ConversationInput);
+      const { conversation } = await client.saveConversation(conversationInputSchema.parse(input) as ConversationInput);
       return ok(
         `Saved "${conversation.title}" with ${conversation.messages.length} messages as ${conversation.id}.`,
         { conversation },
@@ -100,27 +82,16 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const parsed = importSchema.parse(input);
-      let result;
-      try {
-        result = importConversations(parsed.payload, parsed.format);
-      } catch (error) {
-        return toolError(error instanceof Error ? error.message : "Import failed.");
-      }
+      const result = await client.importConversations(parsed);
 
       if (parsed.dryRun) {
         return ok(
-          `Detected ${result.format}: ${result.conversations.length} conversation(s), ${countMessages(result.conversations)} messages. Nothing was written.`,
-          { format: result.format, warnings: result.warnings, preview: result.conversations.map(previewOf) },
+          `Detected ${result.format}: ${result.preview?.length ?? 0} conversation(s). Nothing was written.`,
+          { format: result.format, warnings: result.warnings, preview: result.preview ?? [] },
         );
       }
 
-      const saved: Conversation[] = [];
-      for (const candidate of result.conversations) {
-        saved.push(await store.save({
-          ...candidate,
-          tags: [...new Set([...(candidate.tags ?? []), ...(parsed.tags ?? [])])],
-        }));
-      }
+      const saved = result.conversations ?? [];
 
       const lines = [
         `Imported ${saved.length} conversation(s) as ${result.format}.`,
@@ -144,9 +115,7 @@ export function createLnkzMcpServer(
       annotations: { readOnlyHint: true },
     },
     async ({ id }) => {
-      const conversation = await store.get(id);
-      if (!conversation) return toolError("Conversation not found.");
-      const analysis = analyzeConversation(conversation);
+      const { conversation, analysis } = await client.getConversation(id);
       return ok(conversationToMarkdownWithAnalysis(conversation, analysis), { conversation, analysis });
     },
   );
@@ -161,7 +130,7 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const options = listConversationsSchema.parse(input);
-      const conversations = await store.list(options);
+      const { conversations } = await client.listConversations(options);
       const text = conversations.length
         ? conversations.map((item) => `${item.id} — ${item.title} [${item.source.provider}] ${item.messageCount} messages, updated ${item.updatedAt}`).join("\n")
         : "No conversations stored yet.";
@@ -178,8 +147,8 @@ export function createLnkzMcpServer(
       annotations: { readOnlyHint: true },
     },
     async (input) => {
-      const { query, limit } = searchConversationsSchema.parse(input);
-      const matches = await store.search(query, limit);
+      const request = searchConversationsSchema.parse(input);
+      const { matches } = await client.searchConversations(request);
       const text = matches.length
         ? matches.map((match) => `${match.id} — ${match.title} (relevance ${match.relevance})\n    ${match.snippet}`).join("\n")
         : "No saved conversations matched.";
@@ -197,13 +166,12 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const { conversationId, messages } = appendMessagesSchema.parse(input);
-      const conversation = await store.appendMessages(conversationId, messages);
-      if (!conversation) return toolError("Conversation not found.");
+      const { conversation } = await client.appendMessages(conversationId, messages as MessageInput[]);
       return ok(`Appended ${messages.length} message(s); ${conversation.messages.length} total.`, { conversation });
     },
   );
 
-  registerSurfaces(server, store);
+  registerSurfaces(server, client);
 
   server.registerTool(
     "delete_conversation",
@@ -214,8 +182,8 @@ export function createLnkzMcpServer(
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
     async ({ id }) => {
-      const removed = await store.remove(id);
-      return removed ? ok(`Deleted ${id}.`, { id }) : toolError("Conversation not found.");
+      await client.deleteConversation(id);
+      return ok(`Deleted ${id}.`, { id });
     },
   );
 
@@ -231,15 +199,12 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const options = createHandoffSchema.parse(input);
-      try {
-        const handoff = await store.createHandoff(options);
-        return ok(
-          `Handoff ${handoff.id} expires ${handoff.expiresAt} after up to ${handoff.maxUses} use(s): ${shareUrl(handoff.token)}`,
-          { ...handoff, shareUrl: shareUrl(handoff.token) },
-        );
-      } catch (error) {
-        return toolError(error instanceof Error ? error.message : "Could not create handoff.");
-      }
+      const { conversationId, ...request } = options;
+      const handoff = await client.createHandoff(conversationId, request);
+      return ok(
+        `Handoff ${handoff.id} expires ${handoff.expiresAt} after up to ${handoff.maxUses} use(s): ${handoff.shareUrl}`,
+        { ...handoff },
+      );
     },
   );
 
@@ -253,9 +218,8 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const { token } = redeemHandoffSchema.parse(input);
-      const packet = await store.redeemHandoff(token);
-      if (!packet) return toolError("Handoff is invalid, revoked, exhausted, or expired.");
-      return ok(conversationToMarkdownWithAnalysis(packet.conversation, packet.analysis), { packet });
+      const packet = await client.redeemHandoff(token);
+      return ok(packet.transcriptMarkdown, { packet });
     },
   );
 
@@ -269,28 +233,11 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const options = continueConversationSchema.parse(input);
-      const packet = await store.redeemHandoff(options.token);
-      if (!packet) return toolError("Handoff is invalid, revoked, exhausted, or expired.");
-
-      const parent = packet.conversation;
-      const continuation = await store.save({
-        title: options.title || `${parent.title} (continued in ${options.provider})`,
-        summary: parent.summary,
-        source: { provider: options.provider, app: options.app },
-        participants: parent.participants,
-        tags: [...new Set([...parent.tags, "continuation"])],
-        messages: [...parent.messages, ...options.messages],
-        lineage: {
-          parentId: parent.id,
-          rootId: parent.lineage?.rootId ?? parent.id,
-          handoffId: packet.handoff.id,
-          continuedBy: options.provider,
-        },
-      });
+      const { conversation: continuation, parentId } = await client.continueHandoff(options);
 
       return ok(
-        `Continued ${parent.id} as ${continuation.id} in ${options.provider}, carrying ${parent.messages.length} prior message(s).`,
-        { conversation: continuation, parentId: parent.id },
+        `Continued ${parentId} as ${continuation.id} in ${options.provider}.`,
+        { conversation: continuation, parentId },
       );
     },
   );
@@ -305,8 +252,8 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const { handoffId } = revokeHandoffSchema.parse(input);
-      const revoked = await store.revokeHandoff(handoffId);
-      return revoked ? ok(`Revoked ${handoffId}.`, { handoffId }) : toolError("Handoff not found or already revoked.");
+      await client.revokeHandoff(handoffId);
+      return ok(`Revoked ${handoffId}.`, { handoffId });
     },
   );
 
@@ -319,7 +266,7 @@ export function createLnkzMcpServer(
       annotations: { readOnlyHint: true },
     },
     async ({ conversationId }) => {
-      const handoffs = await store.listHandoffs(conversationId);
+      const { handoffs } = await client.listHandoffs(conversationId);
       const text = handoffs.length
         ? handoffs.map((handoff) => `${handoff.id} — ${handoff.active ? "active" : "inactive"}, ${handoff.uses}/${handoff.maxUses} uses, expires ${handoff.expiresAt}${handoff.audience ? `, for ${handoff.audience}` : ""}`).join("\n")
         : "No handoffs issued.";
@@ -342,7 +289,7 @@ export function createLnkzMcpServer(
       if (!request.query && !request.conversationIds?.length) {
         return toolError("Provide a query, one or more conversationIds, or both.");
       }
-      const packet = await buildContextPacket(store, connectors, request);
+      const { packet } = await client.buildContextPacket(request);
       return ok(packet.markdown, { packet });
     },
   );
@@ -357,9 +304,7 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const { conversationId } = analyzeSchema.parse(input);
-      const conversation = await store.get(conversationId);
-      if (!conversation) return toolError("Conversation not found.");
-      const analysis = analyzeConversation(conversation);
+      const { conversation, analysis } = await client.getConversation(conversationId);
       const lines = [
         `${conversation.title} — ${analysis.messageCount} messages, roughly ${analysis.approxTokens} tokens.`,
         section("Decisions", analysis.decisions.map((claim) => claim.text)),
@@ -380,13 +325,12 @@ export function createLnkzMcpServer(
       annotations: { readOnlyHint: true },
     },
     async (input) => {
-      const { limit, threshold } = conflictSchema.parse(input);
-      const conversations = await loadRecent(store, limit);
-      const conflicts = detectConflicts(conversations, threshold);
+      const request = conflictSchema.parse(input);
+      const { conflicts, scanned } = await client.findConflicts(request);
       const text = conflicts.length
         ? conflicts.map((conflict) => `${conflict.reason}\n  - ${conflict.left.title}: ${conflict.left.text}\n  - ${conflict.right.title}: ${conflict.right.text}`).join("\n\n")
-        : `No contradicting decisions found across ${conversations.length} conversation(s).`;
-      return ok(text, { conflicts, scanned: conversations.length });
+        : `No contradicting decisions found across ${scanned} conversation(s).`;
+      return ok(text, { conflicts, scanned });
     },
   );
 
@@ -399,13 +343,12 @@ export function createLnkzMcpServer(
       annotations: { readOnlyHint: true },
     },
     async (input) => {
-      const { limit, threshold } = duplicateSchema.parse(input);
-      const conversations = await loadRecent(store, limit);
-      const duplicates = detectDuplicates(conversations, threshold);
+      const request = duplicateSchema.parse(input);
+      const { duplicates, scanned } = await client.findDuplicates(request);
       const text = duplicates.length
         ? duplicates.map((pair) => `${pair.similarity}: ${pair.left.title} (${pair.left.conversationId}) ~ ${pair.right.title} (${pair.right.conversationId})`).join("\n")
-        : `No near-duplicates found across ${conversations.length} conversation(s).`;
-      return ok(text, { duplicates, scanned: conversations.length });
+        : `No near-duplicates found across ${scanned} conversation(s).`;
+      return ok(text, { duplicates, scanned });
     },
   );
 
@@ -421,7 +364,7 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const request = contextSearchSchema.parse(input);
-      const result = await aggregateSearch(connectors, request);
+      const result = await client.searchContext(request);
       const lines = result.items.length
         ? result.items.map((item) => `[${item.source}] ${item.title}: ${item.text}${item.url ? ` (${item.url})` : ""}`)
         : ["No connected source returned a match."];
@@ -441,7 +384,7 @@ export function createLnkzMcpServer(
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const statuses = connectorStatuses(coreConnector);
+      const { connectors: statuses } = await client.listConnectors();
       const text = statuses
         .map((status) => `${status.label}: ${status.configured ? "configured" : "disabled"}. ${status.detail}`)
         .join("\n");
@@ -458,7 +401,7 @@ export function createLnkzMcpServer(
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const stats = await store.stats();
+      const { stats } = await client.stats();
       const providers = stats.providers.map((entry) => `${entry.provider} (${entry.count})`).join(", ") || "none";
       return ok(
         `${stats.conversations} conversations, ${stats.messages} messages, ${stats.activeHandoffs} active handoffs.\nProviders: ${providers}`,
@@ -477,7 +420,7 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const { limit } = auditSchema.parse(input);
-      const events = await store.listEvents(limit);
+      const { events } = await client.audit(limit);
       const text = events.length
         ? events.map((event) => `${event.at} ${event.kind}${event.conversationId ? ` conversation=${event.conversationId}` : ""}${event.handoffId ? ` handoff=${event.handoffId}` : ""}`).join("\n")
         : "No events recorded.";
@@ -491,21 +434,21 @@ export function createLnkzMcpServer(
     "connector-status",
     "lnkz://connectors",
     { title: "LNKZ connector status", description: "Configured and disabled connector inventory.", mimeType: "application/json" },
-    async () => jsonResource("lnkz://connectors", { connectors: connectorStatuses(coreConnector) }),
+    async () => jsonResource("lnkz://connectors", await client.listConnectors()),
   );
 
   server.registerResource(
     "workspace-stats",
     "lnkz://stats",
     { title: "LNKZ workspace statistics", description: "Conversation, message, provider, and handoff counts.", mimeType: "application/json" },
-    async () => jsonResource("lnkz://stats", await store.stats()),
+    async () => jsonResource("lnkz://stats", (await client.stats()).stats),
   );
 
   server.registerResource(
     "recent-conversations",
     "lnkz://conversations",
     { title: "Recent LNKZ conversations", description: "The 25 most recently updated conversations.", mimeType: "application/json" },
-    async () => jsonResource("lnkz://conversations", { conversations: await store.list({ limit: 25 }) }),
+    async () => jsonResource("lnkz://conversations", await client.listConversations({ limit: 25 })),
   );
 
   server.registerResource(
@@ -514,17 +457,24 @@ export function createLnkzMcpServer(
     { title: "LNKZ conversation", description: "One conversation as a portable Markdown transcript.", mimeType: "text/markdown" },
     async (uri, variables) => {
       const id = Array.isArray(variables.id) ? variables.id[0] : variables.id;
-      const conversation = id ? await store.get(id) : null;
-      if (!conversation) {
+      if (!id) {
         return { contents: [{ uri: uri.href, mimeType: "text/plain", text: "Conversation not found." }] };
       }
-      return {
-        contents: [{
-          uri: uri.href,
-          mimeType: "text/markdown",
-          text: conversationToMarkdownWithAnalysis(conversation, analyzeConversation(conversation)),
-        }],
-      };
+      try {
+        const { conversation, analysis } = await client.getConversation(id);
+        return {
+          contents: [{
+            uri: uri.href,
+            mimeType: "text/markdown",
+            text: conversationToMarkdownWithAnalysis(conversation, analysis),
+          }],
+        };
+      } catch (error) {
+        if (error instanceof LnkzApiError && error.status === 404) {
+          return { contents: [{ uri: uri.href, mimeType: "text/plain", text: "Conversation not found." }] };
+        }
+        throw error;
+      }
     },
   );
 
@@ -588,29 +538,6 @@ export function createLnkzMcpServer(
   return server;
 }
 
-async function loadRecent(store: ConversationStore, limit: number): Promise<Conversation[]> {
-  const summaries = await store.list({ limit });
-  const conversations: Conversation[] = [];
-  for (const summary of summaries) {
-    const conversation = await store.get(summary.id);
-    if (conversation) conversations.push(conversation);
-  }
-  return conversations;
-}
-
-function countMessages(conversations: ConversationInput[]): number {
-  return conversations.reduce((total, conversation) => total + conversation.messages.length, 0);
-}
-
-function previewOf(conversation: ConversationInput) {
-  return {
-    title: conversation.title,
-    provider: conversation.source.provider,
-    messages: conversation.messages.length,
-    firstMessage: conversation.messages[0]?.content.slice(0, 200),
-  };
-}
-
 function summaryOf(conversation: Conversation) {
   return {
     id: conversation.id,
@@ -619,6 +546,31 @@ function summaryOf(conversation: Conversation) {
     messageCount: conversation.messages.length,
     updatedAt: conversation.updatedAt,
   };
+}
+
+function conversationToMarkdownWithAnalysis(
+  conversation: Conversation,
+  analysis: ConversationAnalysis,
+): string {
+  const lines = [
+    `# ${conversation.title}`,
+    "",
+    `Source: ${conversation.source.provider}`,
+    `Updated: ${conversation.updatedAt}`,
+  ];
+  if (conversation.summary) lines.push("", conversation.summary);
+  lines.push("", "## Conversation", "");
+  for (const message of conversation.messages) {
+    lines.push(`### ${message.author || roleLabel(message.role)}`, "", message.content, "");
+  }
+  const decisions = section("Decisions", analysis.decisions.map((claim) => claim.text));
+  const questions = section("Open questions", analysis.openQuestions.map((claim) => claim.text));
+  if (decisions || questions) lines.push("## Analysis", "", decisions, questions);
+  return lines.filter((line, index, all) => line !== "" || all[index - 1] !== "").join("\n").trim();
+}
+
+function roleLabel(role: string): string {
+  return role === "assistant" ? "Assistant" : role === "system" ? "System" : role === "tool" ? "Tool" : "User";
 }
 
 function section(heading: string, values: string[]): string {

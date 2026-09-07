@@ -1,14 +1,12 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { loadConfig } from "../lnkz/config.js";
+import { LnkzClient } from "./client.js";
 import { createLnkzMcpServer } from "./mcp.js";
-import { createRuntime } from "../lnkz/runtime.js";
 
-const { store, connectors } = createRuntime();
-const server = createLnkzMcpServer(store, connectors, loadConfig().publicBaseUrl);
+const server = createLnkzMcpServer(LnkzClient.fromEnv());
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
-  process.on(signal, () => {
-    store.close();
+  process.on(signal, async () => {
+    await server.close().catch(() => undefined);
     process.exit(0);
   });
 }

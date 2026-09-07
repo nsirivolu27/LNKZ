@@ -1,8 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { prepareCall, type PublishShape } from "../lnkz/publish/prepare.js";
-import { configuredTargets, discoverTools, findTool } from "../lnkz/publish/targets.js";
-import type { ConversationStore } from "../lnkz/store/index.js";
+import type { LnkzClientLike } from "./client.js";
 
 const shapeSchema = z.enum(["summary", "decisions", "transcript", "brief"]);
 
@@ -15,7 +13,7 @@ const prepareSchema = {
 
 const prepareObject = z.object(prepareSchema);
 
-export function registerPublishTools(server: McpServer, store: ConversationStore): void {
+export function registerPublishTools(server: McpServer, client: LnkzClientLike): void {
   server.registerTool(
     "list_publish_targets",
     {
@@ -28,7 +26,7 @@ export function registerPublishTools(server: McpServer, store: ConversationStore
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async () => {
-      const { targets, errors } = configuredTargets();
+      const { targets, errors } = await client.publishTargets();
       if (!targets.length) {
         return {
           content: [{
@@ -39,8 +37,7 @@ export function registerPublishTools(server: McpServer, store: ConversationStore
         };
       }
 
-      const discovered = await discoverTools(targets);
-      const lines = discovered.map((entry) => {
+      const lines = targets.map((entry) => {
         if (entry.error) return `${entry.target}: unreachable (${entry.error})`;
         const writes = entry.tools.filter((tool) => tool.write);
         return `${entry.target}: ${entry.tools.length} tool(s), ${writes.length} that look like writes`
@@ -49,7 +46,7 @@ export function registerPublishTools(server: McpServer, store: ConversationStore
 
       return {
         content: [{ type: "text" as const, text: lines.join("\n\n") }],
-        structuredContent: { targets: discovered, errors },
+        structuredContent: { targets, errors },
       };
     },
   );
@@ -67,26 +64,7 @@ export function registerPublishTools(server: McpServer, store: ConversationStore
     },
     async (input) => {
       const options = prepareObject.parse(input);
-      const conversation = await store.get(options.conversationId);
-      if (!conversation) return toolError("Conversation not found.");
-
-      const { targets } = configuredTargets();
-      const target = targets.find((candidate) => candidate.name === options.target);
-      if (!target) {
-        return toolError(`No target named "${options.target}". Configure it in LNKZ_MCP_TARGETS.`);
-      }
-
-      const discovered = await discoverTools([target]);
-      const failure = discovered[0]?.error;
-      if (failure) return toolError(`Could not reach ${options.target}: ${failure}`);
-
-      const tool = findTool(discovered, options.target, options.tool);
-      if (!tool) {
-        const available = discovered[0]?.tools.map((entry) => entry.name).join(", ") || "none";
-        return toolError(`${options.target} has no tool named "${options.tool}". Available: ${available}.`);
-      }
-
-      const prepared = prepareCall(conversation, options.target, tool, options.shape as PublishShape);
+      const { prepared } = await client.preparePublish(options);
       const lines = [
         `Prepared a call to ${prepared.target}.${prepared.tool}. Nothing was sent.`,
         "",
@@ -103,8 +81,4 @@ export function registerPublishTools(server: McpServer, store: ConversationStore
       };
     },
   );
-}
-
-function toolError(message: string) {
-  return { isError: true as const, content: [{ type: "text" as const, text: message }] };
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { buildConversationGraph, graphToMarkdown, loadRecent } from "../lnkz/graph/index.js";
-import type { ConversationStore } from "../lnkz/store/index.js";
+import type { LnkzClientLike } from "./client.js";
+import type { ConversationGraph } from "./contract.js";
 
 export const graphSchema = {
   limit: z.number().int().min(2).max(200).default(50),
@@ -13,7 +13,7 @@ export const graphSchema = {
 
 const graphObject = z.object(graphSchema);
 
-export function registerGraphTools(server: McpServer, store: ConversationStore): void {
+export function registerGraphTools(server: McpServer, client: LnkzClientLike): void {
   server.registerTool(
     "build_context_graph",
     {
@@ -28,8 +28,7 @@ export function registerGraphTools(server: McpServer, store: ConversationStore):
     },
     async (input) => {
       const options = graphObject.parse(input);
-      const conversations = await loadRecent(store, options.limit);
-      const graph = buildConversationGraph(conversations, options);
+      const { graph } = await client.graph(options);
       return {
         content: [{ type: "text" as const, text: graphToMarkdown(graph) }],
         structuredContent: { graph },
@@ -46,14 +45,43 @@ export function registerGraphTools(server: McpServer, store: ConversationStore):
       mimeType: "application/json",
     },
     async () => {
-      const conversations = await loadRecent(store, 50);
+      const { graph } = await client.graph({ limit: 50 });
       return {
         contents: [{
           uri: "lnkz://graph",
           mimeType: "application/json",
-          text: JSON.stringify(buildConversationGraph(conversations), null, 2),
+          text: JSON.stringify(graph, null, 2),
         }],
       };
     },
   );
+}
+
+function graphToMarkdown(graph: ConversationGraph): string {
+  const lines = [
+    "# LNKZ conversation graph",
+    "",
+    `${graph.stats.conversations} conversations, ${graph.stats.decisions} decisions, `
+      + `${graph.stats.questions} open questions, ${graph.stats.topics} shared topics, ${graph.stats.edges} edges.`,
+    "",
+  ];
+  if (graph.stats.hubs.length) {
+    lines.push("## Most connected", "", ...graph.stats.hubs.map((hub) => `- ${hub.label} (${hub.kind}, ${hub.degree} connections)`), "");
+  }
+  const contradictions = graph.edges.filter((edge) => edge.kind === "contradicts");
+  if (contradictions.length) {
+    lines.push("## Contradictions", "", ...contradictions.slice(0, 8).map((edge) => `- ${edge.reason}`), "");
+  }
+  const duplicates = graph.edges.filter((edge) => edge.kind === "similar");
+  if (duplicates.length) {
+    lines.push("## Likely duplicates", "", ...duplicates.slice(0, 8).map((edge) => `- ${labelOf(graph, edge.from)} and ${labelOf(graph, edge.to)}: ${edge.reason}`), "");
+  }
+  if (graph.stats.isolated.length) {
+    lines.push("## Connected to nothing else", "", ...graph.stats.isolated.slice(0, 10).map((node) => `- ${node.label}`), "");
+  }
+  return lines.join("\n").trim();
+}
+
+function labelOf(graph: ConversationGraph, id: string): string {
+  return graph.nodes.find((node) => node.id === id)?.label ?? id;
 }
