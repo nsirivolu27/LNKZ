@@ -53,8 +53,11 @@ DATABASE_URL=postgresql://lnkz-app:...@host/lnkz pnpm start
 ```
 
 Set `LNKZ_DATABASE_APP_ROLE` during migration to grant the application role table DML. The runtime
-role must not own tables and must not have `BYPASSRLS`. Multi-key workspace authorization requires
-Postgres and `LNKZ_AUTH_MODE=multi-key`.
+role must not own application tables and must not have `BYPASSRLS`. `pnpm start` verifies both
+properties against the connected role before it creates the HTTP listener; if either is unsafe, it
+reports the exact property and exits without serving traffic. Migration setup is intentionally not
+part of the runtime start path. Multi-key workspace authorization requires Postgres and
+`LNKZ_AUTH_MODE=multi-key`.
 
 ## Health and rollout checks
 
@@ -77,7 +80,7 @@ Postgres and `LNKZ_AUTH_MODE=multi-key`.
 | `LNKZ_MCP_CONTEXT_SECRET` | Shared HMAC secret for trusted multi-node MCP context forwarding; minimum 32 bytes |
 | `LNKZ_INSTANCE_NAME` | Operator-facing display name published in the public instance identity document |
 | `DATABASE_URL` | Switch from SQLite to Postgres |
-| `LNKZ_DATABASE_APP_ROLE` | Runtime Postgres role granted by migrations |
+| `LNKZ_DATABASE_APP_ROLE` | Runtime Postgres role granted by the migration command |
 | `LNKZ_MCP_TARGETS` | Downstream MCP targets for publish preparation |
 | `SLACK_*`, `JIRA_*`, `FIGMA_*`, `DOCUMENT_FEED_*` | Optional read-only connectors |
 

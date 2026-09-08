@@ -29,6 +29,57 @@ export const REQUIRED_POSTGRES_SCHEMA_VERSION = 3;
 export { DEFAULT_WORKSPACE_ID };
 
 /**
+ * Verify the role used by the running application cannot bypass the workspace
+ * isolation enforced by Postgres. This is deliberately separate from schema
+ * migrations: the migration role may own the tables, but the runtime role may
+ * not.
+ */
+export async function assertPostgresRuntimeRole(databaseUrl = resolveDatabaseUrl()): Promise<void> {
+  if (!databaseUrl) throw new Error("DATABASE_URL is required to verify the Postgres runtime role.");
+
+  const pool = new Pool({ connectionString: databaseUrl, ssl: postgresSsl(), max: 1 });
+  try {
+    const roleResult = await pool.query<{ role_name: string; bypass_rls: boolean }>(
+      `select current_user as role_name, rolbypassrls as bypass_rls
+         from pg_roles
+        where rolname = current_user`,
+    );
+    const role = roleResult.rows[0];
+    if (!role) {
+      throw new Error("Postgres runtime role could not be identified; refusing to start.");
+    }
+
+    if (role.bypass_rls) {
+      throw new Error(
+        `Postgres runtime role "${role.role_name}" has BYPASSRLS; configure DATABASE_URL with a non-BYPASSRLS application role.`,
+      );
+    }
+
+    const ownedTables = await pool.query<{ table_name: string }>(
+      `select format('%I.%I', namespace.nspname, relation.relname) as table_name
+         from pg_class as relation
+         join pg_namespace as namespace on namespace.oid = relation.relnamespace
+         join pg_roles as owner on owner.oid = relation.relowner
+        where namespace.nspname = 'public'
+          and relation.relkind in ('r', 'p')
+          and relation.relname <> 'schema_migrations'
+          and owner.rolname = $1
+        order by relation.relname`,
+      [role.role_name],
+    );
+    if (ownedTables.rows.length) {
+      throw new Error(
+        `Postgres runtime role "${role.role_name}" owns application table(s): ${ownedTables.rows
+          .map((row) => row.table_name)
+          .join(", ")}; configure DATABASE_URL with a separate non-owner application role.`,
+      );
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
  * The Postgres implementation deliberately keeps the ConversationStore
  * contract identical to SQLite. Until the identity layer supplies a request
  * workspace, LNKZ_POSTGRES_WORKSPACE_ID selects the single workspace used by

@@ -6,7 +6,11 @@ import { afterEach, test } from "node:test";
 import { Pool } from "pg";
 import { toIdentityDocument, verifyHandoffPacket } from "../src/lnkz/identity.js";
 import { migrateSqliteToPostgres } from "../src/lnkz/store/migrate-sqlite.js";
-import { PostgresConversationStore, DEFAULT_WORKSPACE_ID } from "../src/lnkz/store/postgres.js";
+import {
+  assertPostgresRuntimeRole,
+  PostgresConversationStore,
+  DEFAULT_WORKSPACE_ID,
+} from "../src/lnkz/store/postgres.js";
 import { runPostgresMigrations } from "../src/lnkz/store/migrate.js";
 import { SqliteConversationStore } from "../src/lnkz/store/sqlite.js";
 
@@ -97,6 +101,7 @@ test("Postgres migrations roll back a failed attempt and can be retried", { skip
 
 test("Postgres integration uses the restricted application role", { skip: !enabled || !expectedAppRole }, async () => {
   await runPostgresMigrations(migrationUrl);
+  await assertPostgresRuntimeRole(appUrl);
   const pool = new Pool({ connectionString: appUrl, ssl: postgresSsl(), max: 1 });
   try {
     const result = await pool.query<{ current_user: string }>("select current_user");

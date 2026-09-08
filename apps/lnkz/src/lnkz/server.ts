@@ -37,14 +37,18 @@ import {
 } from "./schemas.js";
 import { aggregateSearch } from "./search.js";
 import { createRuntime } from "./runtime.js";
-import { resolveDatabaseUrl } from "./store/postgres.js";
+import { assertPostgresRuntimeRole, resolveDatabaseUrl } from "./store/postgres.js";
 import type { PostgresRateLimiter } from "./store/rate-limit.js";
 import type { Conversation } from "./types.js";
 import { ZodError } from "zod";
 
 const config = loadConfig();
 const { host, port, publicBaseUrl } = config;
-if (config.auth.mode === "multi-key" && !resolveDatabaseUrl()) {
+const databaseUrl = resolveDatabaseUrl();
+if (databaseUrl) {
+  await assertPostgresRuntimeRole(databaseUrl);
+}
+if (config.auth.mode === "multi-key" && !databaseUrl) {
   throw new Error("LNKZ_AUTH_MODE=multi-key requires Postgres; SQLite is intentionally single-tenant.");
 }
 const allowedHosts = withLoopback(config.allowedHosts, port);
