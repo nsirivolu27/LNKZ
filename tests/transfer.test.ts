@@ -73,6 +73,16 @@ test("a transferred conversation records where it came from", async () => {
     // imported the same conversation would otherwise collide on it.
     assert.equal(transfer.conversation.id, undefined);
     assert.notEqual(lineage.originConversationId, transfer.conversation.id);
+    const destination = new SqliteConversationStore(":memory:");
+    try {
+      const saved = await destination.save(transfer.conversation);
+      const loaded = await destination.get(saved.id);
+      assert.equal(loaded?.lineage?.originInstance, lineage.originInstance);
+      assert.equal(loaded?.lineage?.originConversationId, lineage.originConversationId);
+      assert.equal(loaded?.lineage?.importedAt, lineage.importedAt);
+    } finally {
+      destination.close();
+    }
   } finally {
     await origin.close();
   }

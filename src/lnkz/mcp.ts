@@ -158,7 +158,10 @@ export function createLnkzMcpServer(
     "list_conversations",
     {
       title: "List conversations",
-      description: "Lists stored conversations newest first, optionally filtered by provider, tag, or participant.",
+      description:
+        "Lists stored conversations newest first, optionally filtered by provider, tag, participant, or the "
+        + "instance a conversation arrived from. Pass originInstance \"any\" for everything handed to this "
+        + "instance by someone else, or an exact origin to narrow to one sender.",
       inputSchema: listConversationsSchema.shape,
       annotations: { readOnlyHint: true },
     },
@@ -552,6 +555,36 @@ export function createLnkzMcpServer(
     "lnkz://conversations",
     { title: "Recent LNKZ conversations", description: "The 25 most recently updated conversations.", mimeType: "application/json" },
     async () => jsonResource("lnkz://conversations", { conversations: await store.list({ limit: 25 }) }),
+  );
+
+  server.registerResource(
+    "transfers",
+    "lnkz://transfers",
+    {
+      title: "Conversations that arrived from elsewhere",
+      description: "Everything transferred in from another instance, grouped by where it came from.",
+      mimeType: "application/json",
+    },
+    async () => {
+      // The recipient's question is "what has been handed to me, and by whom",
+      // so this groups by origin rather than returning a flat list in update
+      // order. Conversations authored here are absent by construction: they
+      // have no originInstance.
+      const arrived = await store.list({ limit: 200, originInstance: "any" });
+      const byOrigin = new Map<string, typeof arrived>();
+      for (const conversation of arrived) {
+        const origin = conversation.lineage?.originInstance ?? "unknown";
+        byOrigin.set(origin, [...(byOrigin.get(origin) ?? []), conversation]);
+      }
+      return jsonResource("lnkz://transfers", {
+        total: arrived.length,
+        origins: [...byOrigin.entries()].map(([instance, conversations]) => ({
+          instance,
+          count: conversations.length,
+          conversations,
+        })),
+      });
+    },
   );
 
   server.registerResource(

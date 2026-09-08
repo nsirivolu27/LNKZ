@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add a runnable two-instance demo, recorded terminal output, a seeded question
+  command, and MCP client instructions. Preserve transfer origin fields when
+  saving; the existing normalizers had silently dropped them.
+
+- Add store-backed readiness, safe request logs, startup schema checks and
+  awaited shutdown. Include SQL in builds, Fly configuration, a public smoke
+  command, and backup/restore operations.
+
 - Restore the existing cross-instance transfer and twelve-conversation demo
   corpus from the local patch, which had not reached main.
 - Give each reference document one responsibility and add contribution,

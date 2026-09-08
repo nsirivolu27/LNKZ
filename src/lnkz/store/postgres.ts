@@ -103,6 +103,16 @@ export class PostgresConversationStore implements ConversationStore {
         values.push(options.participant);
         filters.push(`participants_json @> $${values.length}::jsonb`);
       }
+      if (options.originInstance) {
+        // ->> reads the field as text and yields NULL when it is absent, so
+        // "any" is a NOT NULL check that binds no value.
+        if (options.originInstance === "any") {
+          filters.push("lineage_json ->> 'originInstance' is not null");
+        } else {
+          values.push(options.originInstance);
+          filters.push(`lineage_json ->> 'originInstance' = $${values.length}`);
+        }
+      }
       values.push(limit, offset);
       const result = await client.query<ConversationRow>(
         `select id, title, summary, provider, source_json, participants_json, tags_json,
@@ -344,8 +354,8 @@ export class PostgresConversationStore implements ConversationStore {
     });
   }
 
-  close(): void {
-    void this.pool.end();
+  async close(): Promise<void> {
+    await this.pool.end();
   }
 
   private async assertSchema(): Promise<void> {
@@ -353,9 +363,9 @@ export class PostgresConversationStore implements ConversationStore {
       "select version from schema_migrations order by version desc limit 1",
     );
     const version = Number(result.rows[0]?.version ?? 0);
-    if (version < REQUIRED_POSTGRES_SCHEMA_VERSION) {
+    if (version !== REQUIRED_POSTGRES_SCHEMA_VERSION) {
       throw new Error(
-        `Postgres schema is behind (found ${version}, need ${REQUIRED_POSTGRES_SCHEMA_VERSION}); run npm run db:migrate before starting LNKZ.`,
+        `Postgres schema is incompatible (found ${version}, need ${REQUIRED_POSTGRES_SCHEMA_VERSION}); run pnpm db:migrate before starting LNKZ.`,
       );
     }
   }
@@ -647,6 +657,9 @@ function normalizeLineage(lineage: ConversationLineage | undefined, selfId?: str
     rootId: lineage.rootId?.trim() || parentId || selfId,
     handoffId: lineage.handoffId?.trim() || undefined,
     continuedBy: lineage.continuedBy?.trim() || undefined,
+    originInstance: lineage.originInstance,
+    originConversationId: lineage.originConversationId,
+    importedAt: lineage.importedAt,
   };
 }
 

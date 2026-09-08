@@ -68,7 +68,7 @@ export class PostgresRateLimiter {
     }
   }
 
-  close(): void {
-    void this.pool.end();
+  async close(): Promise<void> {
+    await this.pool.end();
   }
 }

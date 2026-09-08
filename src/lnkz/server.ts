@@ -40,6 +40,7 @@ import { resolveDatabaseUrl } from "./store/postgres.js";
 import type { PostgresRateLimiter } from "./store/rate-limit.js";
 import type { Conversation } from "./types.js";
 import { ZodError } from "zod";
+import { drainServer, readiness, requestLogging } from "./operations.js";
 
 const config = loadConfig();
 const { host, port, publicBaseUrl } = config;
@@ -48,9 +49,20 @@ if (config.auth.mode === "multi-key" && !resolveDatabaseUrl()) {
 }
 const allowedHosts = withLoopback(config.allowedHosts, port);
 
-const app = createMcpExpressApp({ host, allowedHosts: allowedHosts.length ? allowedHosts : undefined });
+const app = express();
+app.use(requestLogging());
+app.use(express.json({ limit: config.maxBody }));
+app.use(createMcpExpressApp({ host, allowedHosts: allowedHosts.length ? allowedHosts : undefined }));
 app.set("trust proxy", config.trustProxy);
 const { store, core, connectors, sharedRateLimiter } = createRuntime();
+try {
+  await store.stats();
+} catch {
+  console.error("[server] Store startup check failed. Check database connectivity and permissions; run pnpm db:migrate with the migration role for Postgres.");
+  await Promise.all([store.close(), sharedRateLimiter?.close()]);
+  process.exit(1);
+}
+let draining = false;
 const authenticate = createApiKeyMiddleware(
   config.auth.principals,
   config.auth.apiKeyRequired,
@@ -79,10 +91,9 @@ const requireMcpAuth = (request: express.Request, response: express.Response, ne
 
 app.disable("x-powered-by");
 app.use(securityHeaders);
-app.use(express.json({ limit: config.maxBody }));
 app.use(createOriginValidator(config.allowedOrigins));
 app.use((request, response, next) => {
-  if (request.path === "/health" || request.path === config.mcp.path || request.path.startsWith("/api/")) {
+  if (request.path === "/health" || request.path === "/ready" || request.path === config.mcp.path || request.path.startsWith("/api/") || request.path.startsWith("/share/")) {
     response.setHeader("cache-control", "no-store");
   }
   next();
@@ -117,6 +128,8 @@ app.get("/health", (_request, response) => {
     connectors: connectorStatuses(core).map(({ id, configured }) => ({ id, configured })),
   });
 });
+
+app.get("/ready", readiness(store, () => draining));
 
 app.get("/api/connectors", requireApiKey, (_request, response) => {
   response.json({ connectors: connectorStatuses(core) });
@@ -190,6 +203,7 @@ app.get("/api/conversations", requireApiKey, async (request, response) => {
       provider: stringParam(request.query.provider),
       tag: stringParam(request.query.tag),
       participant: stringParam(request.query.participant),
+      originInstance: stringParam(request.query.originInstance),
     });
     response.json({ conversations: await store.list(options) });
   } catch (error) {
@@ -413,7 +427,7 @@ if (config.mcp.enabled) {
       await server.connect(transport);
       await transport.handleRequest(request, response, request.body);
     } catch (error) {
-      console.error("[mcp] request failed", error);
+      console.error("[mcp] request failed");
       if (!response.headersSent) {
         response.status(500).json({
           jsonrpc: "2.0",
@@ -456,39 +470,35 @@ app.use((error: unknown, request: express.Request, response: express.Response, n
     response.status(413).json({ error: "Request body is too large." });
     return;
   }
-  console.error("[server] request failed", {
-    method: request.method,
-    path: request.path,
-    error: error instanceof Error ? error.message : "unknown error",
-  });
+  console.error("[server] request failed");
   response.status(500).json({ error: "Internal server error." });
 });
 
 const httpServer = app.listen(port, host, (error?: Error) => {
   if (error) {
-    console.error("[server] failed to start", error);
+    console.error("[server] failed to listen; check HOST and PORT");
     process.exitCode = 1;
     return;
   }
   console.log(`[server] LNKZ ${LNKZ_VERSION} listening on ${publicBaseUrl}`);
-  if (!process.env.LNKZ_API_KEY?.trim()) {
-    console.warn("[server] LNKZ_API_KEY is not set: the API and MCP endpoint are unauthenticated.");
+  if (!config.auth.apiKeyRequired) {
+    console.warn("[server] Local unauthenticated access is enabled.");
   }
 });
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
-    const timeout = setTimeout(() => {
-      console.error("[server] graceful shutdown timed out");
-      process.exit(1);
-    }, config.shutdownTimeoutMs);
-    timeout.unref();
-    httpServer.close(() => {
-      clearTimeout(timeout);
-      store.close();
-      sharedRateLimiter?.close();
-      process.exit(0);
-    });
+    if (draining) return;
+    draining = true;
+    void drainServer(httpServer, async () => {
+      await Promise.all([store.close(), sharedRateLimiter?.close()]);
+    }, config.shutdownTimeoutMs).then(
+      () => process.exit(0),
+      () => {
+        console.error("[server] graceful shutdown failed or timed out");
+        process.exit(1);
+      },
+    );
   });
 }
 
@@ -556,7 +566,7 @@ function sharedRateLimitMiddleware(
       response.setHeader("retry-after", result.retryAfter);
       response.status(429).json({ error: "Too many requests." });
     } catch (error) {
-      console.error("[rate-limit] shared limiter failed", error);
+      console.error("[rate-limit] shared limiter failed");
       response.status(503).json({ error: "Rate limiting is temporarily unavailable." });
     }
   };

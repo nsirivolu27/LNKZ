@@ -1,0 +1,40 @@
+# Supply the app name with --app; DEPLOY.md creates a unique name.
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  HOST = "0.0.0.0"
+  PORT = "3100"
+  LNKZ_DB_FILE = "/app/.data/lnkz.db"
+  LNKZ_MCP_API_KEY_REQUIRED = "true"
+  LNKZ_SHUTDOWN_TIMEOUT_MS = "25000"
+
+[mounts]
+  source = "lnkz_data"
+  destination = "/app/.data"
+
+[http_service]
+  internal_port = 3100
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/ready"
+    [http_service.checks.headers]
+      Host = "localhost:3100"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"

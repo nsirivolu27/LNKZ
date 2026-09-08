@@ -101,6 +101,7 @@ export function createApiKeyMiddleware(
 
 export function requireScope(scope: Scope): (request: Request, response: Response, next: NextFunction) => void {
   return (_request, response, next) => {
+    response.locals.workspaceId = currentRequestContext()?.workspaceId;
     if (!hasScope(scope)) {
       response.status(403).json({ error: `The ${scope} scope is required.` });
       return;

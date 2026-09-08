@@ -100,6 +100,14 @@ export interface ListOptions {
   provider?: string;
   tag?: string;
   participant?: string;
+  /**
+   * Restrict to conversations that arrived from another instance. An exact
+   * origin narrows to one sender; "any" is everything that came from somewhere
+   * else, which is the question a recipient actually asks: what was handed to
+   * me? Conversations authored here have no originInstance and are excluded by
+   * both forms.
+   */
+  originInstance?: string;
 }
 
 export interface HandoffOptions {

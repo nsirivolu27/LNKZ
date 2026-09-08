@@ -104,7 +104,7 @@ function boolean(value: string | undefined, fallback: boolean): boolean {
   if (value == null || value.trim() === "") return fallback;
   if (["1", "true", "yes", "on"].includes(value.trim().toLowerCase())) return true;
   if (["0", "false", "no", "off"].includes(value.trim().toLowerCase())) return false;
-  throw new Error(`Expected a boolean value, received "${value}".`);
+  throw new Error("Expected a boolean configuration value (true or false).");
 }
 
 function integer(
@@ -138,7 +138,7 @@ function normalizePath(value: string | undefined, fallback: string): string {
     throw new Error("LNKZ_MCP_PATH must be a URL path without query or fragment components.");
   }
   const result = normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized;
-  if (result === "/health" || result === "/share" || result === "/api" || result.startsWith("/api/")) {
+  if (result === "/health" || result === "/ready" || result.startsWith("/.well-known/") || result === "/share" || result === "/api" || result.startsWith("/api/")) {
     throw new Error("LNKZ_MCP_PATH conflicts with a reserved LNKZ route.");
   }
   return result;

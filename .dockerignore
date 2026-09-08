@@ -1,0 +1,18 @@
+.git
+node_modules
+dist
+.testbuild
+.data
+.env*
+*.db*
+*.sqlite*
+*.log
+*.patch
+*.bundle
+graphify-out
+_to_delete
+Claude outputs
+mcp-server
+rsna-knee-abnormality-detection
+tmp
+scratch
