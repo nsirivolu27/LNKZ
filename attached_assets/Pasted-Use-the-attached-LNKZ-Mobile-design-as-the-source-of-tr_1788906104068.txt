@@ -1,0 +1,35 @@
+Use the attached LNKZ Mobile design as the source of truth for the mobile UI.
+
+Implement the design in the existing LNKZ repository. Do not create mock data, a second backend, a second database, or duplicate MCP logic.
+
+Inspect the existing LNKZ REST API first and connect the screens to the real routes:
+
+- GET /api/conversations
+- POST /api/conversations/import
+- GET /api/conversations/:id
+- POST /api/context/packet
+- POST /api/conversations/:id/handoffs
+- DELETE /api/handoffs/:id
+- GET /api/stats
+- GET /api/connectors
+- GET /ready
+
+Build the mobile app in apps/mobile using TypeScript and Expo/React Native. Implement the attached screens as real navigation routes, including:
+
+- Conversation library
+- Import conversation
+- Conversation detail
+- Context packet builder
+- Field handoff creation
+- Active handoffs
+- Settings and server connection
+
+Create a typed API client. Use the configured LNKZ server URL and send the API key as a Bearer token. Store the API key only in secure device storage. Never place secrets in source code, public frontend variables, logs, or error messages.
+
+Use real loading, empty, error, retry, offline, and success states. Preserve all existing LNKZ endpoint paths, authentication, CORS, rate limits, MCP names, resource URIs, storage behavior, and security protections.
+
+For Replit Preview, fix the Invalid Host problem by adding the exact Replit preview hostname to the backend ALLOWED_HOSTS and ALLOWED_ORIGINS environment variables. Set LNKZ_PUBLIC_BASE_URL to the same HTTPS preview URL. If Vite is used, configure its dev server for 0.0.0.0 and allow the exact Replit preview hostname.
+
+Use a same-origin proxy for browser preview requests so the mobile UI calls /api through the Replit preview domain. Do not disable host validation or set unrestricted wildcard access.
+
+After implementation, run typechecking, tests, build, and a real end-to-end smoke test against the LNKZ backend. Confirm that importing a conversation, viewing it, generating a context packet, and creating/revoking a handoff all use the real backend.
