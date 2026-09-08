@@ -18,6 +18,8 @@ const migrations = [
   },
 ] as const;
 
+type Migration = (typeof migrations)[number];
+
 export async function runPostgresMigrations(databaseUrl = process.env.DATABASE_URL): Promise<number> {
   if (!databaseUrl) throw new Error("DATABASE_URL is required to run Postgres migrations.");
   const pool = new Pool({ connectionString: databaseUrl, ssl: postgresSsl(), max: 1 });
@@ -35,15 +37,25 @@ export async function runPostgresMigrations(databaseUrl = process.env.DATABASE_U
     const applied = await client.query<{ version: number }>("select version from schema_migrations order by version");
     const appliedVersions = new Set(applied.rows.map((row) => Number(row.version)));
     let latest = Math.max(0, ...applied.rows.map((row) => Number(row.version)));
+    let lastMigration = migrations.find((migration) => migration.version === latest);
     for (const migration of migrations) {
       if (appliedVersions.has(migration.version)) continue;
-      const sql = await readFile(resolve(migrationsDirectory, migration.file), "utf8");
-      await client.query(sql);
-      await client.query("insert into schema_migrations (version) values ($1)", [migration.version]);
-      latest = migration.version;
+      try {
+        const sql = await readFile(resolve(migrationsDirectory, migration.file), "utf8");
+        await client.query(sql);
+        await client.query("insert into schema_migrations (version) values ($1)", [migration.version]);
+        latest = migration.version;
+        lastMigration = migration;
+      } catch (error) {
+        throw migrationError(migration, error);
+      }
     }
     if (process.env.LNKZ_DATABASE_APP_ROLE) {
-      await grantApplicationRole(client, process.env.LNKZ_DATABASE_APP_ROLE);
+      try {
+        await grantApplicationRole(client, process.env.LNKZ_DATABASE_APP_ROLE);
+      } catch (error) {
+        throw migrationError(lastMigration, error, "post-migration setup");
+      }
     }
     await client.query("commit");
     return latest;
@@ -54,6 +66,20 @@ export async function runPostgresMigrations(databaseUrl = process.env.DATABASE_U
     client.release();
     await pool.end();
   }
+}
+
+function migrationError(
+  migration: Migration | undefined,
+  error: unknown,
+  phase = "migration",
+): Error {
+  const cause = error instanceof Error ? error.message : String(error);
+  const context = migration
+    ? phase === "migration"
+      ? `Migration ${migration.version} (${migration.file}) failed`
+      : `Migration ${migration.version} (${migration.file}) ${phase} failed`
+    : `Post-migration setup failed`;
+  return new Error(`${context}: ${cause}`, { cause: error });
 }
 
 async function grantApplicationRole(client: import("pg").PoolClient, role: string): Promise<void> {

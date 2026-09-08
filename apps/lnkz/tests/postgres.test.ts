@@ -29,7 +29,14 @@ test("Postgres migrations roll back a failed attempt and can be retried", { skip
   try {
     await assert.rejects(
       runPostgresMigrations(migrationUrl),
-      /LNKZ_DATABASE_APP_ROLE must be a lowercase PostgreSQL identifier/,
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.match(error.message, /Migration 3 \(003_instance_identity\.sql\) post-migration setup failed/);
+        assert.match(error.message, /LNKZ_DATABASE_APP_ROLE must be a lowercase PostgreSQL identifier/);
+        assert(error.cause instanceof Error);
+        assert.equal(error.cause.message, "LNKZ_DATABASE_APP_ROLE must be a lowercase PostgreSQL identifier.");
+        return true;
+      },
     );
   } finally {
     if (previousAppRole === undefined) {
@@ -96,6 +103,43 @@ test("Postgres migrations roll back a failed attempt and can be retried", { skip
   } finally {
     await store.remove(id);
     store.close();
+  }
+});
+
+test("Postgres migration SQL failures identify the migration and preserve the database error", async () => {
+  const databaseError = new Error('column "actor_id" already exists');
+  const client = {
+    query: async (statement: string) => {
+      if (statement.includes("select version from schema_migrations")) return { rows: [] };
+      if (statement.includes("alter table events add column if not exists actor_id text")) {
+        throw databaseError;
+      }
+      return { rows: [] };
+    },
+    release: () => undefined,
+  } as unknown as import("pg").PoolClient;
+  const originalConnect = Pool.prototype.connect;
+  Object.defineProperty(Pool.prototype, "connect", {
+    configurable: true,
+    value: async () => client,
+  });
+
+  try {
+    await assert.rejects(
+      runPostgresMigrations("postgres://migration-context-test.invalid"),
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.match(error.message, /Migration 2 \(002_identity_context\.sql\) failed/);
+        assert.match(error.message, /column "actor_id" already exists/);
+        assert.equal(error.cause, databaseError);
+        return true;
+      },
+    );
+  } finally {
+    Object.defineProperty(Pool.prototype, "connect", {
+      configurable: true,
+      value: originalConnect,
+    });
   }
 });
 
