@@ -32,6 +32,10 @@ export function importLnkz(value: unknown): { conversations: ConversationInput[]
   }
 
   const origin = asRecord(source.source);
+  // A packet from a conversation that was already continued somewhere carries
+  // the chain's root. Keeping it is what lets the conversation be recognised
+  // when it comes back to the instance it started on.
+  const lineage = asRecord(source.lineage);
   const conversation = buildConversation({
     title: asString(source.title) || "LNKZ conversation",
     provider: asString(origin?.provider) || "lnkz",
@@ -42,6 +46,7 @@ export function importLnkz(value: unknown): { conversations: ConversationInput[]
     participants: asArray(source.participants).map(asString).filter(Boolean),
     tags: [...asArray(source.tags).map(asString).filter(Boolean), "imported"],
     metadata: { relayedFrom: asString(source.id) || undefined },
+    rootId: asString(lineage?.rootId) || undefined,
   });
 
   return { conversations: conversation ? [conversation] : [], warnings: [] };

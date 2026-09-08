@@ -54,6 +54,8 @@ export const listConversationsSchema = z.object({
   provider: z.string().trim().max(80).optional(),
   tag: z.string().trim().max(80).optional(),
   participant: z.string().trim().max(160).optional(),
+  /** An exact origin, or "any" for everything that arrived from elsewhere. */
+  originInstance: z.string().trim().max(2_048).optional(),
 });
 
 export const searchConversationsSchema = z.object({

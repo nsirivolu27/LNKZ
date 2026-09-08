@@ -69,6 +69,15 @@ export function buildConversation(options: {
   tags?: string[];
   participants?: string[];
   metadata?: Record<string, unknown>;
+  /**
+   * Only ever the chain's root. An importer must not carry parentId or
+   * handoffId across: those name rows in the sending instance's database, and
+   * repeating them here produces lineage that points at ids this instance has
+   * never seen. The root is different. It is the identity of the whole chain
+   * rather than a local row, and losing it is what breaks a conversation that
+   * comes back after being continued somewhere else.
+   */
+  rootId?: string;
 }): ConversationInput | null {
   const messages = options.messages.filter((message) => message.content.trim().length > 0);
   if (!messages.length) return null;
@@ -83,6 +92,7 @@ export function buildConversation(options: {
     participants: options.participants ?? [],
     tags: options.tags ?? [],
     messages,
+    lineage: options.rootId ? { rootId: options.rootId } : undefined,
     metadata: { importedAt: new Date().toISOString(), ...options.metadata },
   };
 }

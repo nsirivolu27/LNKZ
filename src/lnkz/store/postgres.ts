@@ -103,6 +103,16 @@ export class PostgresConversationStore implements ConversationStore {
         values.push(options.participant);
         filters.push(`participants_json @> $${values.length}::jsonb`);
       }
+      if (options.originInstance) {
+        // ->> reads the field as text and yields NULL when it is absent, so
+        // "any" is a NOT NULL check that binds no value.
+        if (options.originInstance === "any") {
+          filters.push("lineage_json ->> 'originInstance' is not null");
+        } else {
+          values.push(options.originInstance);
+          filters.push(`lineage_json ->> 'originInstance' = $${values.length}`);
+        }
+      }
       values.push(limit, offset);
       const result = await client.query<ConversationRow>(
         `select id, title, summary, provider, source_json, participants_json, tags_json,

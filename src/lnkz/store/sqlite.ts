@@ -190,6 +190,17 @@ export class SqliteConversationStore implements ConversationStore {
       filters.push("participants_json LIKE ?");
       params.push(`%${options.participant}%`);
     }
+    if (options.originInstance) {
+      // Lineage is a JSON blob, so this reads one field out of it rather than
+      // adding a column. json_extract returns NULL when the key is absent,
+      // which is what makes "any" a plain NOT NULL check.
+      if (options.originInstance === "any") {
+        filters.push("json_extract(lineage_json, '$.originInstance') IS NOT NULL");
+      } else {
+        filters.push("json_extract(lineage_json, '$.originInstance') = ?");
+        params.push(options.originInstance);
+      }
+    }
     const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
     const rows = this.db
       .prepare(`SELECT * FROM conversations ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)

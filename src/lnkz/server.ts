@@ -203,6 +203,7 @@ app.get("/api/conversations", requireApiKey, async (request, response) => {
       provider: stringParam(request.query.provider),
       tag: stringParam(request.query.tag),
       participant: stringParam(request.query.participant),
+      originInstance: stringParam(request.query.originInstance),
     });
     response.json({ conversations: await store.list(options) });
   } catch (error) {

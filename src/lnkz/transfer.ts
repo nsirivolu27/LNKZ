@@ -80,6 +80,12 @@ export async function fetchTransfer(rawUrl: string, environment: NodeJS.ProcessE
       id: undefined,
       lineage: {
         ...conversation.lineage,
+        // The root has to survive the crossing. Without this, a continuation
+        // made on the receiving instance gets a local root, and handing that
+        // back to the sender produces a chain whose root is an id the sender
+        // has never seen. Carrying the origin's root means every copy of this
+        // conversation, on any instance, points at the same first message.
+        rootId: conversation.lineage?.rootId ?? origin.conversationId,
         originInstance: origin.instance,
         originConversationId: origin.conversationId,
         handoffId: origin.handoffId,
