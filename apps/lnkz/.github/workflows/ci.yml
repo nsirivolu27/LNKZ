@@ -14,7 +14,9 @@ jobs:
     timeout-minutes: 15
     env:
       LNKZ_POSTGRES_MIGRATION_URL: postgresql://lnkz_test:lnkz_test@localhost:5432/lnkz_test
-      LNKZ_POSTGRES_TEST_URL: postgresql://lnkz_test:lnkz_test@localhost:5432/lnkz_test
+      LNKZ_POSTGRES_TEST_URL: postgresql://lnkz_app:lnkz_app@localhost:5432/lnkz_test
+      LNKZ_POSTGRES_TEST_ROLE: lnkz_app
+      LNKZ_DATABASE_APP_ROLE: lnkz_app
       DATABASE_SSL: "false"
     services:
       postgres:
@@ -35,6 +37,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Create the restricted application role
+        run: |
+          PGPASSWORD=lnkz_test psql "$LNKZ_POSTGRES_MIGRATION_URL" \
+            --command "create role lnkz_app login password 'lnkz_app' nosuperuser nocreatedb nocreaterole noreplication nobypassrls"
       - name: Enable pinned pnpm
         run: |
           corepack enable

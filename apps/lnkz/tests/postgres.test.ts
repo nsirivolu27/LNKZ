@@ -12,10 +12,26 @@ import { SqliteConversationStore } from "../src/lnkz/store/sqlite.js";
 
 const migrationUrl = process.env.LNKZ_POSTGRES_MIGRATION_URL;
 const appUrl = process.env.LNKZ_POSTGRES_TEST_URL;
+const expectedAppRole = process.env.LNKZ_POSTGRES_TEST_ROLE;
 const enabled = Boolean(migrationUrl && appUrl);
 
 afterEach(async () => {
   if (enabled) await clearPostgresData();
+});
+
+test("Postgres integration uses the restricted application role", { skip: !enabled || !expectedAppRole }, async () => {
+  await runPostgresMigrations(migrationUrl);
+  const pool = new Pool({ connectionString: appUrl, ssl: postgresSsl(), max: 1 });
+  try {
+    const result = await pool.query<{ current_user: string }>("select current_user");
+    assert.equal(
+      result.rows[0]?.current_user,
+      expectedAppRole,
+      `Postgres integration must use ${expectedAppRole}, not the migration owner`,
+    );
+  } finally {
+    await pool.end();
+  }
 });
 
 test("Postgres preserves instance identity across store reopen", { skip: !enabled }, async () => {
