@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { AppScreen, Field, PrimaryButton, SecondaryButton } from '@/components/ui';
+import { AppScreen, Field, FieldHandoffHeader, PrimaryButton, SecondaryButton } from '@/components/ui';
 import { useApp } from '@/context/AppContext';
 import { ApiError, LnkzApiClient } from '@/services/lnkz-api';
 import { useColors } from '@/hooks/useColors';
@@ -40,17 +40,21 @@ export default function WelcomeScreen() {
   }
 
   return (
-    <AppScreen>
+    <AppScreen style={styles.page}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.content}>
-        <View style={styles.mark}>
-          <Text style={[styles.markText, { color: colors.primaryForeground, backgroundColor: colors.primary }]}>LNKZ</Text>
-          <Text style={[styles.markRule, { backgroundColor: colors.accent }]} />
-        </View>
+        <FieldHandoffHeader
+          onSend={() => setError('Connect your relay below to send context.')}
+          onPacket={() => setError('Connect your relay below to build a packet.')}
+          onHandoff={() => setError('Connect your relay below to create a handoff.')}
+          onSettings={() => setError('Connect your relay below to open settings.')}
+        />
         <View style={styles.hero}>
-          <Text style={[styles.kicker, { color: colors.primary }]}>MOVE CONTEXT / KEEP MOMENTUM</Text>
-          <Text style={[styles.heroTitle, { color: colors.foreground }]}>The useful parts{'\n'}should travel.</Text>
-          <Text style={[styles.heroBody, { color: colors.mutedForeground }]}>
-            Connect this companion to your LNKZ relay. Your key stays in secure device storage; the app never creates a second server.
+          <Text style={[styles.kicker, { color: colors.mutedForeground }]}>RELAY / SEND ONE CHAT / 3 EPHEMERAL DESTINATIONS /</Text>
+          <Text style={[styles.heroWord, { color: colors.foreground }]}>NOISE.</Text>
+          <Text style={[styles.heroSubword, { color: colors.foreground }]}>IS NOW</Text>
+          <Text style={[styles.heroHighlight, { color: colors.accentForeground, backgroundColor: colors.accent }]}>USEFUL.</Text>
+          <Text style={[styles.heroBody, { color: colors.foreground }]}>
+            CONNECT YOUR RELAY TO KEEP THE DECISIONS, THE OPEN QUESTIONS, AND THE USEFUL PART OF THE ROUTE PORTABLE.
           </Text>
         </View>
 
@@ -89,15 +93,15 @@ export default function WelcomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  page: { paddingHorizontal: 12, paddingTop: 10 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  content: { flex: 1, gap: 28 },
-  mark: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  markText: { paddingHorizontal: 7, paddingVertical: 4, fontFamily: 'Inter_700Bold', fontSize: 18, letterSpacing: 1 },
-  markRule: { width: 24, height: 9, marginBottom: 4 },
-  hero: { gap: 12 },
-  kicker: { fontFamily: 'Inter_700Bold', fontSize: 11, letterSpacing: 1.5 },
-  heroTitle: { fontFamily: 'Inter_700Bold', fontSize: 42, lineHeight: 43, letterSpacing: -1.2 },
-  heroBody: { fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 22, maxWidth: 340 },
+  content: { flex: 1, gap: 18 },
+  hero: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 2 },
+  kicker: { fontFamily: 'Inter_700Bold', fontSize: 8, letterSpacing: 0.9, marginBottom: 12 },
+  heroWord: { fontFamily: 'Inter_700Bold', fontSize: 44, lineHeight: 42, letterSpacing: -1.6 },
+  heroSubword: { fontFamily: 'Inter_700Bold', fontSize: 18, lineHeight: 22, letterSpacing: 3.2, marginTop: 8 },
+  heroHighlight: { alignSelf: 'flex-start', fontFamily: 'Inter_700Bold', fontSize: 40, lineHeight: 44, letterSpacing: -1.2, paddingHorizontal: 4, marginTop: 1 },
+  heroBody: { fontFamily: 'Inter_700Bold', fontSize: 9, lineHeight: 13, letterSpacing: 0.25, marginTop: 13, maxWidth: 320 },
   form: { padding: 17, borderWidth: 1.5, gap: 16 },
   formLabel: { fontFamily: 'Inter_700Bold', fontSize: 11, letterSpacing: 1.2 },
   error: { fontFamily: 'Inter_600SemiBold', fontSize: 13, lineHeight: 19 },
