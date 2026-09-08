@@ -72,6 +72,48 @@ test("SQLite to Postgres migration preserves instance identity", { skip: !enable
   }
 });
 
+test("SQLite to Postgres migration does not replace an existing target identity", { skip: !enabled }, async () => {
+  await runPostgresMigrations(migrationUrl);
+  await clearPostgresIdentity();
+
+  const directory = await mkdtemp(join(tmpdir(), "lnkz-postgres-migration-"));
+  const sqlitePath = join(directory, "source.db");
+  const sourceStore = new SqliteConversationStore(sqlitePath);
+  let sourceIdentity;
+  try {
+    sourceIdentity = await sourceStore.ensureInstanceIdentity("Migrated integration test");
+  } finally {
+    sourceStore.close();
+  }
+
+  const targetStore = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
+  let targetIdentity;
+  try {
+    targetIdentity = await targetStore.ensureInstanceIdentity("Existing target integration test");
+  } finally {
+    targetStore.close();
+  }
+
+  try {
+    assert.notEqual(targetIdentity.instanceId, sourceIdentity.instanceId);
+    const targetBeforeMigration = toIdentityDocument(targetIdentity);
+
+    await migrateSqliteToPostgres({ sqlite: sqlitePath, database: appUrl, dryRun: false });
+
+    const reopenedTarget = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
+    try {
+      const targetAfterMigration = await reopenedTarget.getInstanceIdentity();
+      assert.ok(targetAfterMigration);
+      assert.deepEqual(toIdentityDocument(targetAfterMigration), targetBeforeMigration);
+    } finally {
+      reopenedTarget.close();
+    }
+  } finally {
+    await clearPostgresIdentity();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Postgres preserves search, handoffs, and workspace isolation", { skip: !enabled }, async () => {
   await runPostgresMigrations(migrationUrl);
   const store = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
