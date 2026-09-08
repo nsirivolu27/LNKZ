@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, test } from "node:test";
 import { Pool } from "pg";
 import { toIdentityDocument, verifyHandoffPacket } from "../src/lnkz/identity.js";
@@ -436,6 +437,85 @@ test("SQLite to Postgres migration does not replace an existing target identity"
     assert.deepEqual(report.instanceIdentity, {
       sourceIdentityImported: false,
       existingTargetIdentityPreserved: true,
+    });
+    const publicOutput = migrationOutput.join("\n");
+    assert.doesNotMatch(publicOutput, /PRIVATE KEY/);
+    assert.doesNotMatch(publicOutput, new RegExp(privateConversationContent));
+
+    const reopenedTarget = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
+    try {
+      const targetAfterMigration = await reopenedTarget.getInstanceIdentity();
+      assert.ok(targetAfterMigration);
+      assert.deepEqual(toIdentityDocument(targetAfterMigration), targetBeforeMigration);
+    } finally {
+      reopenedTarget.close();
+    }
+  } finally {
+    await clearPostgresIdentity();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("SQLite to Postgres migration without a source identity reports no identity change", { skip: !enabled }, async () => {
+  await runPostgresMigrations(migrationUrl);
+  await clearPostgresIdentity();
+
+  const directory = await mkdtemp(join(tmpdir(), "lnkz-postgres-migration-"));
+  const sqlitePath = join(directory, "source.db");
+  const sourceStore = new SqliteConversationStore(sqlitePath);
+  const privateConversationContent = "identity-less source conversation content stays out of migration reports";
+  try {
+    await sourceStore.save({
+      id: "migration-report-no-source-identity",
+      title: "Identity-less migration conversation",
+      source: { provider: "test" },
+      participants: ["test"],
+      messages: [{ role: "user", content: privateConversationContent }],
+    });
+  } finally {
+    sourceStore.close();
+  }
+
+  const sourceDatabase = new DatabaseSync(sqlitePath);
+  try {
+    sourceDatabase.exec("drop table instance_identity");
+  } finally {
+    sourceDatabase.close();
+  }
+
+  const targetStore = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
+  let targetIdentity;
+  try {
+    targetIdentity = await targetStore.ensureInstanceIdentity("Existing target without source identity");
+  } finally {
+    targetStore.close();
+  }
+
+  try {
+    const targetBeforeMigration = toIdentityDocument(targetIdentity);
+    const migrationOutput: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => migrationOutput.push(args.map(String).join(" "));
+    try {
+      await migrateSqliteToPostgres({ sqlite: sqlitePath, database: appUrl, dryRun: false });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const sourceReport = JSON.parse(migrationOutput[0] ?? "{}") as {
+      counts?: { hasInstanceIdentity?: boolean };
+    };
+    assert.equal(sourceReport.counts?.hasInstanceIdentity, false);
+
+    const report = JSON.parse(migrationOutput.at(-1) ?? "{}") as {
+      instanceIdentity?: {
+        sourceIdentityImported?: boolean;
+        existingTargetIdentityPreserved?: boolean;
+      };
+    };
+    assert.deepEqual(report.instanceIdentity, {
+      sourceIdentityImported: false,
+      existingTargetIdentityPreserved: false,
     });
     const publicOutput = migrationOutput.join("\n");
     assert.doesNotMatch(publicOutput, /PRIVATE KEY/);
