@@ -37,7 +37,7 @@ export default function BuildPacketScreen() {
   return (
     <AppScreen>
       <ScreenHeader
-        eyebrow="04 / BUILD"
+        eyebrow="02 / THE PACKET"
         title="Make the next model smarter."
         description="Ask for a slice of context. LNKZ will assemble a bounded packet with decisions, open questions, and useful excerpts."
       />
@@ -51,7 +51,8 @@ export default function BuildPacketScreen() {
         testID="packet-query-input"
       />
       <View style={styles.tokenRow}>
-        <Text style={[styles.tokenLabel, { color: colors.foreground }]}>TOKEN BUDGET</Text>
+        <View style={[styles.rule, { borderColor: colors.border }]} />
+        <Text style={[styles.tokenLabel, { color: colors.foreground }]}>TOKEN BUDGET / BOUND THE NOISE</Text>
         <View style={styles.tokenChips}>
           {['2000', '4000', '8000'].map((value) => <Chip key={value} label={value} selected={budgetTokens === value} onPress={() => setBudgetTokens(value)} />)}
         </View>
@@ -79,10 +80,11 @@ export default function BuildPacketScreen() {
 }
 
 const styles = StyleSheet.create({
+  rule: { borderTopWidth: 1.5 },
   tokenRow: { gap: 9 },
   tokenLabel: { fontFamily: 'Inter_700Bold', fontSize: 11, letterSpacing: 1.1 },
   tokenChips: { flexDirection: 'row', gap: 8 },
-  packet: { padding: 16, borderWidth: 1.5, gap: 14 },
+  packet: { padding: 14, borderWidth: 1.5, gap: 14 },
   packetTop: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   packetHeading: { flex: 1, gap: 5 },
   packetMeta: { fontFamily: 'Inter_400Regular', fontSize: 11 },

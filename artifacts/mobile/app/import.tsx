@@ -62,14 +62,17 @@ export default function ImportScreen() {
   return (
     <AppScreen>
       <ScreenHeader
-        eyebrow="02 / IMPORT"
+        eyebrow="02 / THE PACKET"
         title="Bring it with you."
         description="Preview first. Save only when the shape looks right."
         right={<SecondaryButton label="Close" onPress={() => router.back()} />}
       />
-      <View style={styles.modeRow}>
+      <View style={[styles.modePanel, { borderColor: colors.border }]}>
+        <SectionLabel>INPUT ROUTE</SectionLabel>
+        <View style={styles.modeRow}>
         <Chip label="PASTE TRANSCRIPT" selected={mode === 'payload'} onPress={() => { setMode('payload'); setPreview(null); }} />
         <Chip label="LNKZ SHARE URL" selected={mode === 'url'} onPress={() => { setMode('url'); setPreview(null); }} />
+        </View>
       </View>
       {mode === 'url' ? (
         <Field
@@ -130,10 +133,11 @@ export default function ImportScreen() {
 }
 
 const styles = StyleSheet.create({
+  modePanel: { padding: 12, borderTopWidth: 1.5, borderBottomWidth: 1.5, gap: 10 },
   modeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  formatRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: -10 },
+  formatRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: -8 },
   actions: { gap: 10 },
-  preview: { padding: 16, gap: 13, borderWidth: 1.5 },
+  preview: { padding: 14, gap: 13, borderWidth: 1.5 },
   previewRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 11, borderBottomWidth: 1 },
   previewCopy: { flex: 1, gap: 4 },
   previewTitle: { fontFamily: 'Inter_700Bold', fontSize: 14 },

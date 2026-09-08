@@ -29,7 +29,7 @@ export default function ConversationDetailScreen() {
   return (
     <AppScreen>
       <ScreenHeader
-        eyebrow={`${conversation.source.provider.toUpperCase()} / ${conversation.messages.length} MESSAGES`}
+        eyebrow={`01 / THE THREAD · ${conversation.source.provider.toUpperCase()} · ${conversation.messages.length} MESSAGES`}
         title={conversation.title}
         description={conversation.summary}
         right={<IconButton icon="x" label="Close conversation" onPress={() => router.back()} />}
@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   actions: { gap: 12 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  analysis: { padding: 16, borderWidth: 1.5, gap: 16 },
+  analysis: { padding: 14, borderWidth: 1.5, gap: 16 },
   stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 18 },
   stat: { minWidth: 70, gap: 3 },
   statValue: { fontFamily: 'Inter_700Bold', fontSize: 23 },
@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
   claimTitle: { fontFamily: 'Inter_700Bold', fontSize: 10, letterSpacing: 1 },
   claim: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 19 },
   messages: { gap: 10, paddingBottom: 30 },
-  message: { padding: 14, borderWidth: 1 },
+  message: { padding: 13, borderWidth: 1.5 },
   messageHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginBottom: 8 },
   role: { fontFamily: 'Inter_700Bold', fontSize: 10, letterSpacing: 1 },
   messageDate: { fontFamily: 'Inter_400Regular', fontSize: 11 },

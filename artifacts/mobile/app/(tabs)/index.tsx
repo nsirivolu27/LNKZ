@@ -60,6 +60,7 @@ export default function LibraryScreen() {
           onPacket={() => router.push('/build')}
           onHandoff={() => router.push('/handoffs')}
           onSettings={() => router.push('/settings')}
+          onThread={() => router.push('/(tabs)')}
         />
 
         <View style={styles.hero}>

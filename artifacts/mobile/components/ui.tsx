@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { ConversationSummary, HandoffSummary } from '@/services/lnkz-api';
@@ -54,15 +55,25 @@ export function ScreenHeader({
   right?: React.ReactNode;
 }) {
   const colors = useColors();
+  const router = useRouter();
   return (
-    <View style={styles.header}>
-      <View style={styles.headerCopy}>
-        {eyebrow ? <Text style={[styles.eyebrow, { color: colors.primary }]}>{eyebrow}</Text> : null}
-        <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
-        {description ? <Text style={[styles.description, { color: colors.mutedForeground }]}>{description}</Text> : null}
+    <>
+      <FieldHandoffHeader
+        onSend={() => router.push('/import')}
+        onPacket={() => router.push('/build')}
+        onHandoff={() => router.push('/handoffs')}
+        onSettings={() => router.push('/settings')}
+        onThread={() => router.push('/(tabs)')}
+      />
+      <View style={[styles.header, { borderColor: colors.border }]}>
+        <View style={styles.headerCopy}>
+          {eyebrow ? <Text style={[styles.eyebrow, { color: colors.mutedForeground }]}>{eyebrow}</Text> : null}
+          <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
+          {description ? <Text style={[styles.description, { color: colors.mutedForeground }]}>{description}</Text> : null}
+        </View>
+        {right}
       </View>
-      {right}
-    </View>
+    </>
   );
 }
 
@@ -71,15 +82,17 @@ export function FieldHandoffHeader({
   onPacket,
   onHandoff,
   onSettings,
+  onThread,
 }: {
   onSend: () => void;
   onPacket: () => void;
   onHandoff: () => void;
   onSettings: () => void;
+  onThread?: () => void;
 }) {
   const colors = useColors();
   const navigation = [
-    { number: '01', label: 'THE THREAD', onPress: () => undefined },
+    { number: '01', label: 'THE THREAD', onPress: onThread ?? (() => undefined) },
     { number: '02', label: 'THE PACKET', onPress: onPacket },
     { number: '03', label: 'THE DESTINATION', onPress: onHandoff },
     { number: '04', label: 'THE HANDOFF', onPress: onSettings },
@@ -109,7 +122,13 @@ export function FieldHandoffHeader({
       </View>
       <View style={[styles.fieldNav, { borderTopColor: colors.border }]}>
         {navigation.map((item) => (
-          <Pressable key={item.number} onPress={item.onPress} style={[styles.fieldNavItem, { borderRightColor: colors.border }]}>
+          <Pressable
+            key={item.number}
+            onPress={item.onPress}
+            accessibilityRole="button"
+            accessibilityLabel={item.label}
+            style={({ pressed }) => [styles.fieldNavItem, { borderRightColor: colors.border, opacity: pressed ? 0.65 : 1 }]}
+          >
             <Text style={[styles.fieldNavNumber, { color: colors.mutedForeground }]}>{item.number}</Text>
             <Text style={[styles.fieldNavLabel, { color: colors.foreground }]}>{item.label}</Text>
           </Pressable>
@@ -159,7 +178,12 @@ export function FieldHandoffPreview({ onImport }: { onImport: () => void }) {
           </View>
         ))}
       </View>
-      <Pressable onPress={onImport} style={({ pressed }) => [styles.fieldPreviewImport, { opacity: pressed ? 0.6 : 1 }]}>
+      <Pressable
+        onPress={onImport}
+        accessibilityRole="button"
+        accessibilityLabel="Import a conversation"
+        style={({ pressed }) => [styles.fieldPreviewImport, { opacity: pressed ? 0.6 : 1 }]}
+      >
         <Feather name="upload-cloud" size={16} color={colors.foreground} />
         <Text style={[styles.fieldPreviewImportText, { color: colors.foreground }]}>IMPORT A CONVERSATION</Text>
       </Pressable>
@@ -233,14 +257,14 @@ export function PrimaryButton({
       }}
       style={({ pressed }) => [
         styles.primaryButton,
-        { backgroundColor: colors.primary, opacity: disabled || loading ? 0.45 : pressed ? 0.78 : 1 },
+        { backgroundColor: colors.foreground, opacity: disabled || loading ? 0.45 : pressed ? 0.78 : 1 },
         style,
       ]}
       testID={`button-${label.toLowerCase().replace(/\s+/g, '-')}`}
     >
-      {loading ? <ActivityIndicator color={colors.primaryForeground} /> : null}
-      {!loading && icon ? <Feather name={icon} size={17} color={colors.primaryForeground} /> : null}
-      <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>{label}</Text>
+      {loading ? <ActivityIndicator color={colors.background} /> : null}
+      {!loading && icon ? <Feather name={icon} size={17} color={colors.background} /> : null}
+      <Text style={[styles.primaryButtonText, { color: colors.background }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -319,6 +343,8 @@ export function Chip({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
       style={({ pressed }) => [
         styles.chip,
         { backgroundColor: selected ? colors.accent : colors.secondary, opacity: pressed ? 0.7 : 1 },
@@ -435,26 +461,26 @@ export function formatDate(value: string): string {
 }
 
 export const styles = StyleSheet.create({
-  screen: { flexGrow: 1, paddingHorizontal: 20, gap: 18 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 },
-  headerCopy: { flex: 1, gap: 6 },
-  eyebrow: { fontFamily: 'Inter_700Bold', fontSize: 11, letterSpacing: 1.6 },
-  title: { fontFamily: 'Inter_700Bold', fontSize: 30, lineHeight: 34 },
-  description: { fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20 },
+  screen: { flexGrow: 1, paddingHorizontal: 12, gap: 18 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, paddingHorizontal: 10, paddingVertical: 4, borderBottomWidth: 1.5 },
+  headerCopy: { flex: 1, gap: 7 },
+  eyebrow: { fontFamily: 'Inter_700Bold', fontSize: 9, letterSpacing: 1.2 },
+  title: { fontFamily: 'Inter_700Bold', fontSize: 32, lineHeight: 34, letterSpacing: -0.8 },
+  description: { fontFamily: 'Inter_500Medium', fontSize: 11, lineHeight: 16, letterSpacing: 0.15 },
   sectionLabel: { fontFamily: 'Inter_700Bold', fontSize: 11, letterSpacing: 1.3, textTransform: 'uppercase' },
   iconButton: { width: 40, height: 40, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  primaryButton: { minHeight: 50, paddingHorizontal: 18, flexDirection: 'row', gap: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'transparent' },
-  primaryButtonText: { fontFamily: 'Inter_700Bold', fontSize: 14, letterSpacing: 0.2 },
-  secondaryButton: { minHeight: 42, paddingHorizontal: 14, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
-  secondaryButtonText: { fontFamily: 'Inter_600SemiBold', fontSize: 13 },
+  primaryButton: { minHeight: 50, paddingHorizontal: 16, flexDirection: 'row', gap: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
+  primaryButtonText: { fontFamily: 'Inter_700Bold', fontSize: 11, letterSpacing: 0.9, textTransform: 'uppercase' },
+  secondaryButton: { minHeight: 42, paddingHorizontal: 13, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
+  secondaryButtonText: { fontFamily: 'Inter_700Bold', fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase' },
   field: { gap: 8 },
   fieldHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   label: { fontFamily: 'Inter_700Bold', fontSize: 12, letterSpacing: 0.4 },
   hint: { fontFamily: 'Inter_400Regular', fontSize: 11 },
-  input: { minHeight: 48, borderWidth: 1.5, paddingHorizontal: 14, paddingVertical: 12, fontFamily: 'Inter_400Regular', fontSize: 15 },
+  input: { minHeight: 48, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 12, fontFamily: 'Inter_500Medium', fontSize: 14 },
   multiline: { minHeight: 180, textAlignVertical: 'top' },
-  chip: { minHeight: 32, paddingHorizontal: 11, justifyContent: 'center', alignItems: 'center' },
-  chipText: { fontFamily: 'Inter_700Bold', fontSize: 10, letterSpacing: 0.8 },
+  chip: { minHeight: 32, paddingHorizontal: 11, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
+  chipText: { fontFamily: 'Inter_700Bold', fontSize: 9, letterSpacing: 0.8 },
   notice: { flexDirection: 'row', gap: 10, padding: 13, borderWidth: 1.5 },
   noticeCopy: { flex: 1, gap: 10, alignItems: 'flex-start' },
   noticeText: { fontFamily: 'Inter_500Medium', fontSize: 13, lineHeight: 19 },
@@ -467,7 +493,7 @@ export const styles = StyleSheet.create({
   providerBadge: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   providerBadgeText: { fontFamily: 'Inter_700Bold', fontSize: 9, letterSpacing: 0.5 },
   cardContent: { flex: 1, gap: 3 },
-  handoffCard: { padding: 16, borderWidth: 1.5, gap: 12 },
+  handoffCard: { padding: 14, borderWidth: 1.5, gap: 12 },
   cardTopline: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
   provider: { fontFamily: 'Inter_700Bold', fontSize: 10, letterSpacing: 1.2 },
   cardDate: { fontFamily: 'Inter_500Medium', fontSize: 11 },

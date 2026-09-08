@@ -39,7 +39,7 @@ export default function HandoffsScreen() {
   return (
     <AppScreen scroll={false}>
       <ScreenHeader
-        eyebrow="05 / HANDOFFS"
+        eyebrow="03 / THE HANDOFF"
         title="What’s in motion."
         description="Active links are intentionally visible. Revoke anything that has served its purpose."
         right={<IconButton icon="plus" label="Create handoff" onPress={() => router.push('/import')} />}
@@ -71,8 +71,8 @@ export default function HandoffsScreen() {
 }
 
 const styles = StyleSheet.create({
-  summary: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  activeCount: { fontFamily: 'Inter_700Bold', fontSize: 26 },
+  summary: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 50, paddingHorizontal: 10, borderTopWidth: 1.5, borderBottomWidth: 1.5 },
+  activeCount: { fontFamily: 'Inter_700Bold', fontSize: 28, letterSpacing: -0.8 },
   loading: { minHeight: 180, justifyContent: 'center', alignItems: 'center' },
   list: { paddingBottom: 120 },
 });

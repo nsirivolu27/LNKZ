@@ -45,8 +45,8 @@ export default function SettingsScreen() {
 
   return (
     <AppScreen>
-      <ScreenHeader eyebrow="06 / SETTINGS" title="Make it yours." description="The relay remains the source of truth. This app only stores your connection and preferences." />
-      <View style={styles.section}>
+      <ScreenHeader eyebrow="04 / THE SETTINGS" title="Make it yours." description="The relay remains the source of truth. This app only stores your connection and preferences." />
+      <View style={[styles.section, { borderColor: colors.border }]}>
         <SectionLabel>RELAY CONNECTION</SectionLabel>
         <Field label="Server URL" value={serverUrl} onChangeText={setServerUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
         <Field label="API key" hint="leave blank to keep current" value={apiKey} onChangeText={setApiKey} autoCapitalize="none" autoCorrect={false} secureTextEntry />
@@ -54,11 +54,11 @@ export default function SettingsScreen() {
         {status ? <Text style={[styles.status, { color: colors.primary }]}>{status}</Text> : null}
         <PrimaryButton label="Test & save connection" icon="check" onPress={saveConnection} loading={busy} />
       </View>
-      <View style={styles.section}>
+      <View style={[styles.section, { borderColor: colors.border }]}>
         <SectionLabel>APPEARANCE</SectionLabel>
         <View style={styles.themeRow}>{THEMES.map((theme) => <Chip key={theme} label={theme} selected={themePreference === theme} onPress={() => setThemePreference(theme)} />)}</View>
       </View>
-      <View style={styles.section}>
+      <View style={[styles.section, { borderColor: colors.border }]}>
         <SectionLabel>ABOUT LNKZ</SectionLabel>
         <SecondaryButton label="Open protocol documentation" icon="book-open" onPress={() => Linking.openURL(PROTOCOL_DOCS_URL).catch(() => undefined)} />
         <SecondaryButton label="View health endpoint" icon="activity" onPress={() => credentials ? Linking.openURL(`${credentials.serverUrl}/health`).catch(() => undefined) : undefined} />
@@ -73,7 +73,7 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  section: { gap: 12 },
+  section: { gap: 12, padding: 12, borderTopWidth: 1.5, borderBottomWidth: 1.5 },
   themeRow: { flexDirection: 'row', gap: 8 },
   status: { fontFamily: 'Inter_600SemiBold', fontSize: 13 },
   danger: { padding: 15, borderWidth: 1.5, gap: 10 },

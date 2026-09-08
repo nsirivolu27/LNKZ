@@ -52,7 +52,7 @@ export default function NewHandoffScreen() {
   return (
     <AppScreen>
       <ScreenHeader
-        eyebrow="03 / HANDOFF"
+        eyebrow="03 / THE HANDOFF"
         title={issued ? 'Link is live.' : 'Send it forward.'}
         description={issued ? 'This link is private, expiring, and ready to paste into Claude or a teammate chat.' : 'Shape the boundary before you share the context.'}
         right={<SecondaryButton label="Close" onPress={() => router.back()} />}
@@ -91,11 +91,11 @@ export default function NewHandoffScreen() {
 const styles = StyleSheet.create({
   twoCol: { flexDirection: 'row', gap: 12 },
   flex: { flex: 1 },
-  redactRow: { padding: 14, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  redactRow: { padding: 13, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 12 },
   redactCopy: { flex: 1, gap: 4 },
   redactTitle: { fontFamily: 'Inter_700Bold', fontSize: 13 },
   redactBody: { fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 17 },
-  issued: { padding: 17, borderWidth: 1.5, gap: 13 },
+  issued: { padding: 14, borderWidth: 1.5, gap: 13 },
   shareUrl: { fontFamily: 'Inter_600SemiBold', fontSize: 14, lineHeight: 20 },
   issuedMeta: { fontFamily: 'Inter_400Regular', fontSize: 12 },
   shareActions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
