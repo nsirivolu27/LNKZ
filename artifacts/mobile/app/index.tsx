@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { AppScreen, Field, FieldHandoffHeader, PrimaryButton, SecondaryButton } from '@/components/ui';
+import { AppScreen, Field, FieldHandoffHeader, FieldHandoffPreview, PrimaryButton, SecondaryButton } from '@/components/ui';
 import { useApp } from '@/context/AppContext';
 import { ApiError, LnkzApiClient } from '@/services/lnkz-api';
 import { useColors } from '@/hooks/useColors';
@@ -49,7 +49,7 @@ export default function WelcomeScreen() {
           onSettings={() => setError('Connect your relay below to open settings.')}
         />
         <View style={styles.hero}>
-          <Text style={[styles.kicker, { color: colors.mutedForeground }]}>RELAY / SEND ONE CHAT / 3 EPHEMERAL DESTINATIONS /</Text>
+          <Text style={[styles.kicker, { color: colors.mutedForeground }]}>RELAY / NOTICE OF CHANGE / EFFECTIVE IMMEDIATELY</Text>
           <Text style={[styles.heroWord, { color: colors.foreground }]}>NOISE.</Text>
           <Text style={[styles.heroSubword, { color: colors.foreground }]}>IS NOW</Text>
           <Text style={[styles.heroHighlight, { color: colors.accentForeground, backgroundColor: colors.accent }]}>USEFUL.</Text>
@@ -57,6 +57,8 @@ export default function WelcomeScreen() {
             CONNECT YOUR RELAY TO KEEP THE DECISIONS, THE OPEN QUESTIONS, AND THE USEFUL PART OF THE ROUTE PORTABLE.
           </Text>
         </View>
+
+        <FieldHandoffPreview onImport={() => setError('Connect your relay below to import a conversation.')} />
 
         <View style={[styles.form, { borderColor: colors.border, backgroundColor: colors.card }]}>
           <Text style={[styles.formLabel, { color: colors.foreground }]}>01 / CONNECT TO YOUR RELAY</Text>

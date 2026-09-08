@@ -87,7 +87,7 @@ export function FieldHandoffHeader({
   return (
     <View style={[styles.fieldHeader, { borderColor: colors.border }]}>
       <View style={[styles.fieldStrip, { backgroundColor: colors.foreground }]}>
-        <Text style={[styles.fieldStripText, { color: colors.background }]}>LNKZ / FIELD HANDOFF / CONTEXT RELAY / PRIVATE BY DEFAULT</Text>
+        <Text style={[styles.fieldStripText, { color: colors.background }]}>KEEP THE CONTEXT — LOSE THE NOISE — PRIVATE HANDOFF — LNKZ —</Text>
       </View>
       <View style={styles.fieldIdentity}>
         <View style={styles.fieldBrand}>
@@ -119,12 +119,56 @@ export function FieldHandoffHeader({
   );
 }
 
-export function FieldHandoffStat({ label, value }: { label: string; value: string }) {
+export function FieldHandoffStat({ label, value, style }: { label: string; value: string; style?: StyleProp<ViewStyle> }) {
   const colors = useColors();
   return (
-    <View style={[styles.fieldStat, { borderColor: colors.border }]}>
+    <View style={[styles.fieldStat, style, { borderColor: colors.border }]}>
       <Text style={[styles.fieldStatLabel, { color: colors.mutedForeground }]}>{label}</Text>
       <Text style={[styles.fieldStatValue, { color: colors.foreground }]}>{value}</Text>
+    </View>
+  );
+}
+
+export function FieldHandoffPreview({ onImport }: { onImport: () => void }) {
+  const colors = useColors();
+  const rows = [
+    { code: 'GPT', title: 'Edge cache invalidation for the relay API', meta: '38 messages · 12 min ago', featured: true },
+    { code: 'CL', title: 'Workspace onboarding notes', meta: '24 messages · Yesterday', featured: false },
+    { code: 'CU', title: 'MCP publish preparation', meta: '61 messages · 2 days ago', featured: false },
+  ];
+
+  return (
+    <View style={styles.fieldPreview}>
+      <View style={styles.fieldPreviewRows}>
+        {rows.map((row) => (
+          <View
+            key={row.title}
+            style={[
+              styles.fieldPreviewRow,
+              { borderBottomColor: colors.border, backgroundColor: row.featured ? colors.foreground : 'transparent' },
+            ]}
+          >
+            <Text style={[styles.fieldPreviewBullet, { color: row.featured ? colors.background : colors.foreground }]}>{row.featured ? '›' : '·'}</Text>
+            <View style={[styles.fieldPreviewBadge, { backgroundColor: row.featured ? colors.background : colors.secondary }]}>
+              <Text style={[styles.fieldPreviewBadgeText, { color: row.featured ? colors.foreground : colors.mutedForeground }]}>{row.code}</Text>
+            </View>
+            <View style={styles.fieldPreviewCopy}>
+              <Text style={[styles.fieldPreviewTitle, { color: row.featured ? colors.background : colors.foreground }]}>{row.title}</Text>
+              <Text style={[styles.fieldPreviewMeta, { color: row.featured ? colors.mutedForeground : colors.mutedForeground }]}>{row.meta}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+      <Pressable onPress={onImport} style={({ pressed }) => [styles.fieldPreviewImport, { opacity: pressed ? 0.6 : 1 }]}>
+        <Feather name="upload-cloud" size={16} color={colors.foreground} />
+        <Text style={[styles.fieldPreviewImportText, { color: colors.foreground }]}>IMPORT A CONVERSATION</Text>
+      </Pressable>
+      <View style={styles.fieldPreviewStats}>
+        <FieldHandoffStat label="RATING" value="4.9 ★" style={styles.fieldStatHalf} />
+        <FieldHandoffStat label="HANDOFFS" value="23.4K" style={styles.fieldStatHalf} />
+        <FieldHandoffStat label="VERSION" value="0.2" style={styles.fieldStatHalf} />
+        <FieldHandoffStat label="TTL" value="7 DAYS" style={styles.fieldStatHalf} />
+      </View>
     </View>
   );
 }
@@ -446,6 +490,19 @@ export const styles = StyleSheet.create({
   fieldNavNumber: { fontFamily: 'Inter_700Bold', fontSize: 8 },
   fieldNavLabel: { fontFamily: 'Inter_700Bold', fontSize: 8, lineHeight: 10 },
   fieldStat: { flex: 1, padding: 10, minHeight: 57, justifyContent: 'space-between', borderRightWidth: 1.5 },
+  fieldStatHalf: { flexBasis: '50%', flexGrow: 0, flexShrink: 0, width: '50%' },
   fieldStatLabel: { fontFamily: 'Inter_700Bold', fontSize: 7, letterSpacing: 0.8 },
   fieldStatValue: { fontFamily: 'Inter_700Bold', fontSize: 18, letterSpacing: -0.4 },
+  fieldPreview: { marginTop: 8 },
+  fieldPreviewRows: { borderTopWidth: 1.5 },
+  fieldPreviewRow: { minHeight: 55, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1.5 },
+  fieldPreviewBullet: { width: 10, fontFamily: 'Inter_700Bold', fontSize: 18, textAlign: 'center' },
+  fieldPreviewBadge: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  fieldPreviewBadgeText: { fontFamily: 'Inter_700Bold', fontSize: 7 },
+  fieldPreviewCopy: { flex: 1, gap: 3 },
+  fieldPreviewTitle: { fontFamily: 'Inter_700Bold', fontSize: 11, lineHeight: 14 },
+  fieldPreviewMeta: { fontFamily: 'Inter_500Medium', fontSize: 8 },
+  fieldPreviewImport: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1.5, paddingHorizontal: 8 },
+  fieldPreviewImportText: { fontFamily: 'Inter_500Medium', fontSize: 11, letterSpacing: 0.4 },
+  fieldPreviewStats: { flexDirection: 'row', flexWrap: 'wrap', borderLeftWidth: 1.5, borderTopWidth: 1.5, borderColor: 'transparent' },
 });

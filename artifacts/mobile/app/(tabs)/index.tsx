@@ -63,7 +63,7 @@ export default function LibraryScreen() {
         />
 
         <View style={styles.hero}>
-          <Text style={[styles.heroKicker, { color: colors.mutedForeground }]}>RELAY / SEND ONE CHAT / 3 EPHEMERAL DESTINATIONS /</Text>
+          <Text style={[styles.heroKicker, { color: colors.mutedForeground }]}>RELAY / NOTICE OF CHANGE / EFFECTIVE IMMEDIATELY</Text>
           <Text style={[styles.heroWord, { color: colors.foreground }]}>NOISE.</Text>
           <Text style={[styles.heroSubword, { color: colors.foreground }]}>IS NOW</Text>
           <Text style={[styles.heroHighlight, { color: colors.accentForeground, backgroundColor: colors.accent }]}>USEFUL.</Text>
@@ -120,10 +120,10 @@ export default function LibraryScreen() {
         )}
 
         <View style={[styles.statsRow, { borderColor: colors.border }]}>
-          <FieldHandoffStat label="VERSIONS" value="0.2" />
-          <FieldHandoffStat label="THREADS" value={String(conversations.length)} />
-          <FieldHandoffStat label="MESSAGES" value={messageCount.toLocaleString()} />
-          <FieldHandoffStat label="STATUS" value={api ? 'LIVE' : 'SETUP'} />
+          <FieldHandoffStat label="VERSIONS" value="0.2" style={styles.statHalf} />
+          <FieldHandoffStat label="THREADS" value={String(conversations.length)} style={styles.statHalf} />
+          <FieldHandoffStat label="MESSAGES" value={messageCount.toLocaleString()} style={styles.statHalf} />
+          <FieldHandoffStat label="STATUS" value={api ? 'LIVE' : 'SETUP'} style={styles.statHalf} />
         </View>
         <View style={[styles.footer, { backgroundColor: colors.foreground }]}>
           <Text style={[styles.footerText, { color: colors.background }]}>RELEASE NOTES / REUSE CONTEXT / PRESERVE LINKS / SHARE LESS CHAOS / MORE SIGNAL.</Text>
@@ -150,6 +150,7 @@ const styles = StyleSheet.create({
   loading: { minHeight: 160, justifyContent: 'center', alignItems: 'center' },
   conversationList: { gap: 0, paddingTop: 4 },
   statsRow: { flexDirection: 'row', borderTopWidth: 1.5, borderLeftWidth: 1.5, marginTop: 20 },
+  statHalf: { flexBasis: '50%', flexGrow: 0, flexShrink: 0, width: '50%' },
   footer: { minHeight: 42, paddingHorizontal: 10, justifyContent: 'center', marginTop: 12 },
   footerText: { fontFamily: 'Inter_700Bold', fontSize: 7, lineHeight: 11, letterSpacing: 0.7 },
 });
