@@ -21,3 +21,10 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+ALLOWED_HOSTS = "5fff3994-bb7b-4483-9128-52e56d0a20d3-00-1w3ptsf98fjet.janeway.replit.dev,5fff3994-bb7b-4483-9128-52e56d0a20d3-00-1w3ptsf98fjet.expo.janeway.replit.dev"
+ALLOWED_ORIGINS = "https://5fff3994-bb7b-4483-9128-52e56d0a20d3-00-1w3ptsf98fjet.janeway.replit.dev,https://5fff3994-bb7b-4483-9128-52e56d0a20d3-00-1w3ptsf98fjet.expo.janeway.replit.dev"
+LNKZ_PUBLIC_BASE_URL = "https://5fff3994-bb7b-4483-9128-52e56d0a20d3-00-1w3ptsf98fjet.janeway.replit.dev"

@@ -22,7 +22,8 @@
     "plugins": ["expo-router"],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": true,
+      "baseUrl": "mobile"
     }
   }
 }

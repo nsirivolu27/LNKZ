@@ -51,7 +51,8 @@ export interface AppConfig {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const host = env.HOST?.trim() || "127.0.0.1";
   const port = integer(env.PORT, 3100, 1, 65_535, "PORT");
-  const publicBaseUrl = env.LNKZ_PUBLIC_BASE_URL?.trim() || `http://${host}:${port}`;
+  const previewOrigin = exactOrigin(env.REPLIT_DEV_DOMAIN);
+  const publicBaseUrl = env.LNKZ_PUBLIC_BASE_URL?.trim() || previewOrigin || `http://${host}:${port}`;
   validateBaseUrl(publicBaseUrl);
 
   const mcpPath = normalizePath(env.LNKZ_MCP_PATH, "/mcp");
@@ -99,8 +100,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     host,
     port,
     publicBaseUrl,
-    allowedHosts: splitList(env.ALLOWED_HOSTS),
-    allowedOrigins: splitList(env.ALLOWED_ORIGINS),
+    allowedHosts: mergeExactHosts(splitList(env.ALLOWED_HOSTS), [
+      exactHost(env.REPLIT_DEV_DOMAIN),
+      exactHost(env.REPLIT_EXPO_DEV_DOMAIN),
+    ]),
+    allowedOrigins: mergeExactOrigins(splitList(env.ALLOWED_ORIGINS), [
+      exactOrigin(env.REPLIT_DEV_DOMAIN),
+      exactOrigin(env.REPLIT_EXPO_DEV_DOMAIN),
+    ]),
     maxBody: env.LNKZ_MAX_BODY?.trim() || "24mb",
     webDistDir: env.WEB_DIST_DIR?.trim() || undefined,
     trustProxy: proxySetting(env.LNKZ_TRUST_PROXY),
@@ -132,6 +139,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
 export function splitList(value: string | undefined): string[] {
   return (value ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
+function mergeExactHosts(configured: string[], derived: Array<string | undefined>): string[] {
+  return [...new Set([...configured, ...derived.filter((value): value is string => Boolean(value))])];
+}
+
+function mergeExactOrigins(configured: string[], derived: Array<string | undefined>): string[] {
+  return [...new Set([...configured, ...derived.filter((value): value is string => Boolean(value))])];
+}
+
+function exactHost(value: string | undefined): string | undefined {
+  const origin = exactOrigin(value);
+  return origin ? new URL(origin).host : undefined;
+}
+
+function exactOrigin(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    return `https://${parsed.host}`;
+  } catch {
+    return undefined;
+  }
 }
 
 function boolean(value: string | undefined, fallback: boolean): boolean {

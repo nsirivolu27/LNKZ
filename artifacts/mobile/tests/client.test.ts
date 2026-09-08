@@ -79,6 +79,50 @@ test('packet generation sends bounded budget and returns markdown for copy/share
   assert.equal(response.packet.markdown, '# Launch decision');
 });
 
+test('handoff creation and revoke use the authenticated relay contract', async () => {
+  const requests: { url: string; method: string; body?: unknown }[] = [];
+  mockFetch((url, init) => {
+    requests.push({
+      url,
+      method: init?.method ?? 'GET',
+      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+    });
+    if (init?.method === 'POST') {
+      return Response.json({
+        id: 'handoff-1',
+        token: 'private-token',
+        expiresAt: '2026-09-08T01:00:00.000Z',
+        maxUses: 2,
+        redact: true,
+        shareUrl: 'https://relay.example.com/h/hand-off',
+      });
+    }
+    return Response.json({});
+  });
+  const client = new LnkzApiClient({ serverUrl: 'relay.example.com', apiKey: 'key' });
+  const issue = await client.createHandoff('conversation-1', {
+    ttlMinutes: 60,
+    maxUses: 2,
+    audience: 'preview',
+    note: 'Carry the decision forward',
+    redact: true,
+  });
+  await client.revokeHandoff(issue.id);
+
+  assert.equal(requests[0]?.url, 'https://relay.example.com/api/conversations/conversation-1/handoffs');
+  assert.equal(requests[0]?.method, 'POST');
+  assert.deepEqual(requests[0]?.body, {
+    conversationId: 'conversation-1',
+    ttlMinutes: 60,
+    maxUses: 2,
+    audience: 'preview',
+    note: 'Carry the decision forward',
+    redact: true,
+  });
+  assert.equal(requests[1]?.url, 'https://relay.example.com/api/handoffs/handoff-1');
+  assert.equal(requests[1]?.method, 'DELETE');
+});
+
 test('stats and connector status stay behind the authenticated API client', async () => {
   let call = 0;
   mockFetch((url, init) => {

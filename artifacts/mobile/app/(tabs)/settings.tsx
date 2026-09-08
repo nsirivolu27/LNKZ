@@ -72,7 +72,10 @@ export default function SettingsScreen() {
         {connectorsQuery.isLoading ? (
           <ActivityIndicator color={colors.primary} />
         ) : connectorsQuery.error ? (
-          <Text style={[styles.muted, { color: colors.mutedForeground }]}>Source status is unavailable right now.</Text>
+          <View style={styles.connectorError}>
+            <Text style={[styles.muted, { color: colors.mutedForeground }]}>Source status is unavailable right now.</Text>
+            <SecondaryButton label="Retry" onPress={() => connectorsQuery.refetch()} />
+          </View>
         ) : (
           connectorsQuery.data?.connectors.map((connector) => (
             <View key={connector.id} style={styles.connectorRow}>
@@ -104,9 +107,10 @@ const styles = StyleSheet.create({
   themeRow: { flexDirection: 'row', gap: 8 },
   status: { fontFamily: 'Inter_600SemiBold', fontSize: 13 },
   muted: { fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 17 },
-  connectorRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#c9c3b9' },
+  connectorRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9, borderBottomWidth: 1 },
   connectorCopy: { flex: 1, gap: 3 },
   connectorLabel: { fontFamily: 'Inter_700Bold', fontSize: 12 },
+  connectorError: { gap: 10, alignItems: 'flex-start' },
   danger: { padding: 15, borderWidth: 1.5, gap: 10 },
   dangerTitle: { fontFamily: 'Inter_700Bold', fontSize: 11, letterSpacing: 1.2 },
   dangerBody: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 19 },

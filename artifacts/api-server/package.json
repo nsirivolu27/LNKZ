@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm run build && pnpm run start",
+    "dev": "export LNKZ_API_KEY=preview-flow-key LNKZ_MANAGED_AUTH_ENABLED=false LNKZ_ALLOW_UNAUTHENTICATED=false && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
     "typecheck:web": "tsc -p tsconfig.web.json --noEmit",

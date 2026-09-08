@@ -1,4 +1,5 @@
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
 const { Readable } = require('stream');
@@ -23,7 +24,7 @@ function findWorkspaceRoot(startDir) {
 
 const workspaceRoot = findWorkspaceRoot(projectRoot);
 const basePath = (process.env.BASE_PATH || '/').replace(/\/+$/, '');
-const metroPort = Number(process.env.METRO_PORT || '8081');
+let metroPort = Number(process.env.METRO_PORT || '8081');
 
 function exitWithError(message) {
   console.error(message);
@@ -120,10 +121,40 @@ async function checkMetroHealth() {
     const response = await fetch(`http://localhost:${metroPort}/status`, {
       signal: AbortSignal.timeout(5000),
     });
-    return response.ok;
+    return response.ok && (await response.text()).includes('packager-status:running');
   } catch {
     return false;
   }
+}
+
+function canListenOnPort(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    const cleanup = (available) => {
+      server.removeAllListeners();
+      server.close(() => resolve(available));
+    };
+    server.once('error', () => cleanup(false));
+    server.once('listening', () => cleanup(true));
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+async function selectMetroPort() {
+  const preferredPort = metroPort;
+  if (await checkMetroHealth()) return preferredPort;
+
+  for (let candidate = preferredPort; candidate < preferredPort + 100; candidate += 1) {
+    if (await canListenOnPort(candidate)) {
+      metroPort = candidate;
+      if (candidate !== preferredPort) {
+        console.log(`Metro port ${preferredPort} is unavailable; using ${candidate}`);
+      }
+      return candidate;
+    }
+  }
+
+  throw new Error(`Could not find an available Metro port starting at ${preferredPort}.`);
 }
 
 function getExpoPublicReplId() {
@@ -131,8 +162,8 @@ function getExpoPublicReplId() {
 }
 
 async function startMetro(expoPublicDomain, expoPublicReplId) {
-  const isRunning = await checkMetroHealth();
-  if (isRunning) {
+  await selectMetroPort();
+  if (await checkMetroHealth()) {
     console.log('Metro already running');
     return;
   }

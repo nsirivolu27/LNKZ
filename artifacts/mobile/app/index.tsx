@@ -11,7 +11,8 @@ export default function WelcomeScreen() {
   const colors = useColors();
   const router = useRouter();
   const { credentials, isReady, connect } = useApp();
-  const [serverUrl, setServerUrl] = useState(credentials?.serverUrl ?? '');
+  const defaultServerUrl = process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : '';
+  const [serverUrl, setServerUrl] = useState(credentials?.serverUrl ?? defaultServerUrl);
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
