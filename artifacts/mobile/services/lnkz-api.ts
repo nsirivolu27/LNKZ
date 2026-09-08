@@ -249,7 +249,7 @@ export class LnkzApiClient {
   }
 
   health(): Promise<HealthResponse> {
-    return this.request<HealthResponse>('/health', { headers: { authorization: undefined } });
+    return this.request<HealthResponse>('/health');
   }
 
   listConversations(options: { provider?: string; tag?: string; participant?: string } = {}) {

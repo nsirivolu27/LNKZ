@@ -21,6 +21,18 @@ function NativeTabLayout() {
         />
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="build">
+        <NativeTabs.Trigger.Icon sf={{ default: 'wand.and.stars', selected: 'wand.and.stars.inverse' }} />
+        <NativeTabs.Trigger.Label>Build</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="handoffs">
+        <NativeTabs.Trigger.Icon sf={{ default: 'link', selected: 'link.circle.fill' }} />
+        <NativeTabs.Trigger.Label>Handoffs</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="settings">
+        <NativeTabs.Trigger.Icon sf={{ default: 'gearshape', selected: 'gearshape.fill' }} />
+        <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
@@ -73,6 +85,27 @@ function ClassicTabLayout() {
             ) : (
               <Feather name="home" size={22} color={color} />
             ),
+        }}
+      />
+      <Tabs.Screen
+        name="build"
+        options={{
+          title: 'Build',
+          tabBarIcon: ({ color }) => isIOS ? <SymbolView name="wand.and.stars" tintColor={color} size={24} /> : <Feather name="edit-3" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="handoffs"
+        options={{
+          title: 'Handoffs',
+          tabBarIcon: ({ color }) => isIOS ? <SymbolView name="link" tintColor={color} size={24} /> : <Feather name="link" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ color }) => isIOS ? <SymbolView name="gearshape" tintColor={color} size={24} /> : <Feather name="settings" size={22} color={color} />,
         }}
       />
     </Tabs>

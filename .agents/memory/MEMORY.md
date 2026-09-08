@@ -5,3 +5,4 @@
 - [Managed identity boundary](managed-identity-boundary.md) — OIDC sessions must resolve explicit Postgres membership before creating an actor context.
 - [GitHub connector limitations](github-connector.md) — repository reads work, but low-level Git Data writes and hidden workflow paths may be blocked by the proxy.
 - [Claude destination boundary](claude-destination.md) — Anthropic model access is not Claude-owned-space delivery; preserve the expiring link fallback until a managed destination exists.
+- [Expo mobile workflow quirks](expo-mobile-quirks.md) — browser proxy host validation and shared Metro ports can differ from QR/device behavior.

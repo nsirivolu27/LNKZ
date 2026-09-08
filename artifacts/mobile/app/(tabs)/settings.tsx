@@ -1,0 +1,82 @@
+import React, { useState } from 'react';
+import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { AppScreen, Chip, ErrorNotice, Field, PrimaryButton, ScreenHeader, SecondaryButton, SectionLabel } from '@/components/ui';
+import { useApp } from '@/context/AppContext';
+import { ApiError, LnkzApiClient } from '@/services/lnkz-api';
+import { ThemePreference } from '@/services/credentials';
+import { useColors } from '@/hooks/useColors';
+import { PROTOCOL_DOCS_URL } from '@/constants/links';
+
+const THEMES: ThemePreference[] = ['system', 'light', 'dark'];
+
+export default function SettingsScreen() {
+  const colors = useColors();
+  const router = useRouter();
+  const { credentials, themePreference, connect, disconnect, setThemePreference } = useApp();
+  const [serverUrl, setServerUrl] = useState(credentials?.serverUrl ?? '');
+  const [apiKey, setApiKey] = useState('');
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function saveConnection() {
+    setBusy(true);
+    setError('');
+    setStatus('');
+    try {
+      const client = new LnkzApiClient({ serverUrl, apiKey: apiKey || 'stored-key' });
+      await client.health();
+      await connect(serverUrl, apiKey || credentials?.apiKey || '');
+      setStatus('Connection tested and saved.');
+    } catch (nextError) {
+      setError(nextError instanceof ApiError ? nextError.message : 'Could not test the relay.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function reset() {
+    Alert.alert('Reset this device?', 'This removes the saved relay URL and API key from secure storage.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Reset', style: 'destructive', onPress: async () => { await disconnect(); router.replace('/'); } },
+    ]);
+  }
+
+  return (
+    <AppScreen>
+      <ScreenHeader eyebrow="06 / SETTINGS" title="Make it yours." description="The relay remains the source of truth. This app only stores your connection and preferences." />
+      <View style={styles.section}>
+        <SectionLabel>RELAY CONNECTION</SectionLabel>
+        <Field label="Server URL" value={serverUrl} onChangeText={setServerUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+        <Field label="API key" hint="leave blank to keep current" value={apiKey} onChangeText={setApiKey} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+        {error ? <ErrorNotice message={error} /> : null}
+        {status ? <Text style={[styles.status, { color: colors.primary }]}>{status}</Text> : null}
+        <PrimaryButton label="Test & save connection" icon="check" onPress={saveConnection} loading={busy} />
+      </View>
+      <View style={styles.section}>
+        <SectionLabel>APPEARANCE</SectionLabel>
+        <View style={styles.themeRow}>{THEMES.map((theme) => <Chip key={theme} label={theme} selected={themePreference === theme} onPress={() => setThemePreference(theme)} />)}</View>
+      </View>
+      <View style={styles.section}>
+        <SectionLabel>ABOUT LNKZ</SectionLabel>
+        <SecondaryButton label="Open protocol documentation" icon="book-open" onPress={() => Linking.openURL(PROTOCOL_DOCS_URL).catch(() => undefined)} />
+        <SecondaryButton label="View health endpoint" icon="activity" onPress={() => credentials ? Linking.openURL(`${credentials.serverUrl}/health`).catch(() => undefined) : undefined} />
+      </View>
+      <View style={[styles.danger, { borderColor: colors.destructive }]}>
+        <Text style={[styles.dangerTitle, { color: colors.foreground }]}>DEVICE RESET</Text>
+        <Text style={[styles.dangerBody, { color: colors.mutedForeground }]}>Remove local credentials before handing this device to someone else.</Text>
+        <SecondaryButton label="Reset connection" icon="trash-2" onPress={reset} />
+      </View>
+    </AppScreen>
+  );
+}
+
+const styles = StyleSheet.create({
+  section: { gap: 12 },
+  themeRow: { flexDirection: 'row', gap: 8 },
+  status: { fontFamily: 'Inter_600SemiBold', fontSize: 13 },
+  danger: { padding: 15, borderWidth: 1.5, gap: 10 },
+  dangerTitle: { fontFamily: 'Inter_700Bold', fontSize: 11, letterSpacing: 1.2 },
+  dangerBody: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 19 },
+});

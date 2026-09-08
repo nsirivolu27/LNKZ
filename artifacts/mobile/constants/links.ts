@@ -1,0 +1,1 @@
+export const PROTOCOL_DOCS_URL = 'https://github.com/replit/lnkz';

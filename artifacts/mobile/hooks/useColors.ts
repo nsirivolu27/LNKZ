@@ -19,9 +19,6 @@ export function useColors() {
   const { themePreference } = useApp();
   const activeScheme =
     themePreference === 'system' ? scheme : themePreference;
-  const palette =
-    activeScheme === 'dark' && 'dark' in colors
-      ? (colors as Record<string, typeof colors.light>).dark
-      : colors.light;
+  const palette = activeScheme === 'dark' ? colors.dark : colors.light;
   return { ...palette, radius: colors.radius };
 }
