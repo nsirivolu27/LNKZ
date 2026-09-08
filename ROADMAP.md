@@ -57,17 +57,6 @@ resolution in behind it.
 - Make the SQLite-to-Postgres migration an accessible, verified command.
 - Preserve audit actors consistently across both stores.
 
-## Completing the round trip
-
-The one path above stops at step 4. These finish it, and none needs an account:
-
-- Show what arrived from elsewhere: filter conversations by `originInstance`, so
-  a recipient can see what was handed to them and by whom.
-- Demonstrate the return leg. B continuing the work and handing it back to A is
-  already possible with the pieces that exist; it has no example and no test.
-- Name the far instance in a way a person recognizes, from its published
-  identity, rather than showing a bare origin URL.
-
 ## Scope boundaries
 
 This relay does not need a web console, accounts, embeddings, a queue, a cache
