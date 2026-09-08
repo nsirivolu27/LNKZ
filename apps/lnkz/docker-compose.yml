@@ -1,0 +1,19 @@
+services:
+  lnkz:
+    build: .
+    ports:
+      - "3100:3100"
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3100
+      LNKZ_PUBLIC_BASE_URL: ${LNKZ_PUBLIC_BASE_URL:-http://localhost:3100}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3100}
+    volumes:
+      - lnkz-data:/app/.data
+    restart: unless-stopped
+
+volumes:
+  lnkz-data:
