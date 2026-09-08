@@ -32,3 +32,4 @@ mcp-server/
 *.sqlite-wal
 *.pem
 _last-run.txt
+cdk.out/

@@ -59,8 +59,9 @@ resolution in behind it.
 
 ## Scope boundaries
 
-This relay does not need a web console, accounts, embeddings, a queue, a cache
-service or a message bus. Text messages and one-parent lineage remain the
+The existing LLMM landing page and console now live with the relay in LNKZ.
+The console uses REST; it does not introduce accounts, embeddings, a queue, a
+cache service or a message bus. Text messages and one-parent lineage remain the
 conversation model. Optional future work includes attachment portability,
 claim-level citations, and deliberate connector write-back after the core
 operational path is proven.

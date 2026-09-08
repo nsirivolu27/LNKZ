@@ -16,4 +16,8 @@ mcp-server
 rsna-knee-abnormality-detection
 tmp
 scratch
+**/node_modules
+**/dist
+**/.env*
+**/cdk.out
 *.pem
