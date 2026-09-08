@@ -3,6 +3,6 @@ type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 export const modules: ModuleMap = {
   "./components/mockups/lnkz-relay/LnkzRelayWorkspace.tsx": () => import("../components/mockups/lnkz-relay/LnkzRelayWorkspace.tsx"),
   "./components/mockups/templates/BrutalistOutdoorRebrandScreen-621R9s/App.tsx": () => import("../components/mockups/templates/BrutalistOutdoorRebrandScreen-621R9s/App.tsx"),
-  "./components/mockups/templates/RetroFilmCrowdfundingApp-WsdWHU/App.tsx": () => import("../components/mockups/templates/RetroFilmCrowdfundingApp-WsdWHU/App.tsx"),
-  "./components/mockups/templates/RetroFilmCrowdfundingApp--hiwbD/App.tsx": () => import("../components/mockups/templates/RetroFilmCrowdfundingApp--hiwbD/App.tsx")
+  "./components/mockups/templates/RetroFilmCrowdfundingApp--hiwbD/App.tsx": () => import("../components/mockups/templates/RetroFilmCrowdfundingApp--hiwbD/App.tsx"),
+  "./components/mockups/templates/RetroFilmCrowdfundingApp-WsdWHU/App.tsx": () => import("../components/mockups/templates/RetroFilmCrowdfundingApp-WsdWHU/App.tsx")
 };
