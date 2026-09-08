@@ -110,6 +110,68 @@ test("Postgres integration uses the restricted application role", { skip: !enabl
   }
 });
 
+test("Postgres application role has the runtime schema privileges", { skip: !enabled }, async () => {
+  await runPostgresMigrations(migrationUrl);
+  const pool = new Pool({ connectionString: appUrl, ssl: postgresSsl(), max: 1 });
+  try {
+    const missing = await pool.query<{ object_name: string; privilege: string }>(`
+      with required_table_privileges as (
+        select
+          format('%I.%I', namespace.nspname, relation.relname) as object_name,
+          privilege
+        from pg_class as relation
+        join pg_namespace as namespace on namespace.oid = relation.relnamespace
+        cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE']::text[]) as required(privilege)
+        where namespace.nspname = 'public'
+          and relation.relkind in ('r', 'p')
+          -- These tables are not application data: one is migration bookkeeping
+          -- and the other only supplies the workspace foreign-key parent.
+          and relation.relname not in ('schema_migrations', 'workspaces')
+      ),
+      required_migration_privileges as (
+        select
+          'public.schema_migrations'::text as object_name,
+          'SELECT'::text as privilege
+      ),
+      required_sequence_privileges as (
+        select
+          format('%I.%I', namespace.nspname, relation.relname) as object_name,
+          'USAGE'::text as privilege
+        from pg_class as relation
+        join pg_namespace as namespace on namespace.oid = relation.relnamespace
+        where namespace.nspname = 'public'
+          and relation.relkind = 'S'
+      ),
+      missing as (
+        select object_name, privilege
+        from required_table_privileges
+        where not has_table_privilege(current_user, object_name, privilege)
+        union all
+        select object_name, privilege
+        from required_migration_privileges
+        where not has_table_privilege(current_user, object_name, privilege)
+        union all
+        select object_name, privilege
+        from required_sequence_privileges
+        where not has_sequence_privilege(current_user, object_name, privilege)
+      )
+      select object_name, privilege
+      from missing
+      order by object_name, privilege
+    `);
+
+    assert.deepEqual(
+      missing.rows,
+      [],
+      `Postgres application role is missing runtime privileges: ${missing.rows
+        .map((row) => `${row.object_name} (${row.privilege})`)
+        .join(", ")}`,
+    );
+  } finally {
+    await pool.end();
+  }
+});
+
 test("Postgres preserves instance identity across store reopen", { skip: !enabled }, async () => {
   await runPostgresMigrations(migrationUrl);
   await clearPostgresIdentity();
