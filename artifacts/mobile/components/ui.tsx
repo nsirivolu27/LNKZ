@@ -66,6 +66,69 @@ export function ScreenHeader({
   );
 }
 
+export function FieldHandoffHeader({
+  onSend,
+  onPacket,
+  onHandoff,
+  onSettings,
+}: {
+  onSend: () => void;
+  onPacket: () => void;
+  onHandoff: () => void;
+  onSettings: () => void;
+}) {
+  const colors = useColors();
+  const navigation = [
+    { number: '01', label: 'THE THREAD', onPress: () => undefined },
+    { number: '02', label: 'THE PACKET', onPress: onPacket },
+    { number: '03', label: 'THE DESTINATION', onPress: onHandoff },
+    { number: '04', label: 'THE HANDOFF', onPress: onSettings },
+  ];
+  return (
+    <View style={[styles.fieldHeader, { borderColor: colors.border }]}>
+      <View style={[styles.fieldStrip, { backgroundColor: colors.foreground }]}>
+        <Text style={[styles.fieldStripText, { color: colors.background }]}>LNKZ / FIELD HANDOFF / CONTEXT RELAY / PRIVATE BY DEFAULT</Text>
+      </View>
+      <View style={styles.fieldIdentity}>
+        <View style={styles.fieldBrand}>
+          <View style={[styles.fieldMark, { borderColor: colors.foreground }]} />
+          <View>
+            <Text style={[styles.fieldBrandName, { color: colors.foreground }]}>LNKZ</Text>
+            <Text style={[styles.fieldBrandMeta, { color: colors.mutedForeground }]}>CONTEXT RELAY · 1:1 · SHARE · PRIVATE BY DEFAULT</Text>
+          </View>
+        </View>
+        <Pressable
+          onPress={onSend}
+          style={({ pressed }) => [styles.fieldSend, { backgroundColor: colors.accent, borderColor: colors.border, opacity: pressed ? 0.72 : 1 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Send context"
+        >
+          <Text style={[styles.fieldSendText, { color: colors.accentForeground }]}>SEND</Text>
+          <Feather name="arrow-up-right" size={14} color={colors.accentForeground} />
+        </Pressable>
+      </View>
+      <View style={[styles.fieldNav, { borderTopColor: colors.border }]}>
+        {navigation.map((item) => (
+          <Pressable key={item.number} onPress={item.onPress} style={[styles.fieldNavItem, { borderRightColor: colors.border }]}>
+            <Text style={[styles.fieldNavNumber, { color: colors.mutedForeground }]}>{item.number}</Text>
+            <Text style={[styles.fieldNavLabel, { color: colors.foreground }]}>{item.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+export function FieldHandoffStat({ label, value }: { label: string; value: string }) {
+  const colors = useColors();
+  return (
+    <View style={[styles.fieldStat, { borderColor: colors.border }]}>
+      <Text style={[styles.fieldStatLabel, { color: colors.mutedForeground }]}>{label}</Text>
+      <Text style={[styles.fieldStatValue, { color: colors.foreground }]}>{value}</Text>
+    </View>
+  );
+}
+
 export function IconButton({
   icon,
   label,
@@ -367,4 +430,21 @@ export const styles = StyleSheet.create({
   cardSummary: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 19 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
   cardMeta: { fontFamily: 'Inter_500Medium', fontSize: 11 },
+  fieldHeader: { borderWidth: 1.5, backgroundColor: 'transparent' },
+  fieldStrip: { minHeight: 16, paddingHorizontal: 8, justifyContent: 'center' },
+  fieldStripText: { fontFamily: 'Inter_700Bold', fontSize: 7, letterSpacing: 0.8 },
+  fieldIdentity: { minHeight: 70, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  fieldBrand: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  fieldMark: { width: 12, height: 12, borderWidth: 1.5, transform: [{ rotate: '45deg' }] },
+  fieldBrandName: { fontFamily: 'Inter_700Bold', fontSize: 17, letterSpacing: 0.8 },
+  fieldBrandMeta: { fontFamily: 'Inter_500Medium', fontSize: 7, letterSpacing: 0.4, marginTop: 2 },
+  fieldSend: { minHeight: 42, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 5, borderLeftWidth: 1.5 },
+  fieldSendText: { fontFamily: 'Inter_700Bold', fontSize: 10, letterSpacing: 0.8 },
+  fieldNav: { flexDirection: 'row', borderTopWidth: 1.5 },
+  fieldNavItem: { flex: 1, minHeight: 48, padding: 7, justifyContent: 'space-between', borderRightWidth: 1.5 },
+  fieldNavNumber: { fontFamily: 'Inter_700Bold', fontSize: 8 },
+  fieldNavLabel: { fontFamily: 'Inter_700Bold', fontSize: 8, lineHeight: 10 },
+  fieldStat: { flex: 1, padding: 10, minHeight: 57, justifyContent: 'space-between', borderRightWidth: 1.5 },
+  fieldStatLabel: { fontFamily: 'Inter_700Bold', fontSize: 7, letterSpacing: 0.8 },
+  fieldStatValue: { fontFamily: 'Inter_700Bold', fontSize: 18, letterSpacing: -0.4 },
 });
