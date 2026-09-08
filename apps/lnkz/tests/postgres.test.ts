@@ -302,6 +302,80 @@ test("Postgres application role has the runtime schema privileges", { skip: !ena
   }
 });
 
+test("Postgres workspace tables require forced RLS and an isolation policy", { skip: !enabled }, async () => {
+  await runPostgresMigrations(migrationUrl);
+  const pool = new Pool({ connectionString: appUrl, ssl: postgresSsl(), max: 1 });
+  try {
+    const missing = await pool.query<{ table_name: string; requirement: string }>(`
+      with workspace_tables as (
+        select
+          relation.oid as table_oid,
+          format('%I.%I', namespace.nspname, relation.relname) as table_name,
+          relation.relrowsecurity as rls_enabled,
+          relation.relforcerowsecurity as rls_forced
+        from pg_class as relation
+        join pg_namespace as namespace on namespace.oid = relation.relnamespace
+        where namespace.nspname = 'public'
+          and relation.relkind in ('r', 'p')
+          -- A workspace_id column or foreign key to workspaces identifies a
+          -- runtime tenant table without maintaining a second list.
+          and (
+            exists (
+              select 1
+              from pg_attribute as attribute
+              where attribute.attrelid = relation.oid
+                and attribute.attname = 'workspace_id'
+                and not attribute.attisdropped
+            )
+            or exists (
+              select 1
+              from pg_constraint as constraint_record
+              where constraint_record.conrelid = relation.oid
+                and constraint_record.contype = 'f'
+                and constraint_record.confrelid = 'public.workspaces'::regclass
+            )
+          )
+      ),
+      missing_requirements as (
+        select table_name, 'row-level security must be enabled'::text as requirement
+        from workspace_tables
+        where not rls_enabled
+        union all
+        select table_name, 'row-level security must be forced'::text as requirement
+        from workspace_tables
+        where not rls_forced
+        union all
+        select table_name, 'a workspace isolation policy with USING and WITH CHECK is required'::text
+        from workspace_tables
+        where not exists (
+          select 1
+          from pg_policy as policy
+          where policy.polrelid = workspace_tables.table_oid
+            and policy.polqual is not null
+            and policy.polwithcheck is not null
+            and pg_get_expr(policy.polqual, policy.polrelid) ilike '%workspace_id%'
+            and pg_get_expr(policy.polwithcheck, policy.polrelid) ilike '%workspace_id%'
+            and pg_get_expr(policy.polqual, policy.polrelid) ilike '%app.workspace_id%'
+            and pg_get_expr(policy.polwithcheck, policy.polrelid) ilike '%app.workspace_id%'
+        )
+      )
+      select table_name, requirement
+      from missing_requirements
+      order by table_name, requirement
+    `);
+
+    assert.deepEqual(
+      missing.rows,
+      [],
+      `Postgres workspace isolation requirements are missing: ${missing.rows
+        .map((row) => `${row.table_name}: ${row.requirement}`)
+        .join("; ")}`,
+    );
+  } finally {
+    await pool.end();
+  }
+});
+
 test("Postgres preserves instance identity across store reopen", { skip: !enabled }, async () => {
   await runPostgresMigrations(migrationUrl);
   await clearPostgresIdentity();
