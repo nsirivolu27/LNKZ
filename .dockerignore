@@ -16,3 +16,4 @@ mcp-server
 rsna-knee-abnormality-detection
 tmp
 scratch
+*.pem
