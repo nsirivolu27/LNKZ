@@ -344,18 +344,16 @@ export function ConversationCard({
       ]}
       testID={`conversation-${conversation.id}`}
     >
-      <View style={styles.cardTopline}>
-        <Text style={[styles.provider, { color: colors.primary }]}>{conversation.source.provider.toUpperCase()}</Text>
-        <Text style={[styles.cardDate, { color: colors.mutedForeground }]}>{formatDate(conversation.updatedAt)}</Text>
+      <View style={[styles.providerBadge, { backgroundColor: colors.secondary }]}>
+        <Text style={[styles.providerBadgeText, { color: colors.primary }]}>{conversation.source.provider.slice(0, 2).toUpperCase()}</Text>
       </View>
-      <Text numberOfLines={2} style={[styles.cardTitle, { color: colors.foreground }]}>{conversation.title}</Text>
-      {conversation.summary ? (
-        <Text numberOfLines={2} style={[styles.cardSummary, { color: colors.mutedForeground }]}>{conversation.summary}</Text>
-      ) : null}
-      <View style={styles.cardFooter}>
-        <Text style={[styles.cardMeta, { color: colors.mutedForeground }]}>{conversation.messageCount} messages</Text>
-        <Feather name="arrow-up-right" size={17} color={colors.foreground} />
+      <View style={styles.cardContent}>
+        <Text numberOfLines={1} style={[styles.cardTitle, { color: colors.foreground }]}>{conversation.title}</Text>
+        <Text numberOfLines={1} style={[styles.cardSummary, { color: colors.mutedForeground }]}>
+          {conversation.source.provider.toUpperCase()} · {conversation.messageCount} MESSAGES · {formatDate(conversation.updatedAt)}
+        </Text>
       </View>
+      <Feather name="arrow-up-right" size={16} color={colors.foreground} />
     </Pressable>
   );
 }
@@ -421,7 +419,10 @@ export const styles = StyleSheet.create({
   emptyTitle: { fontFamily: 'Inter_700Bold', fontSize: 18, textAlign: 'center' },
   emptyDescription: { fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20, textAlign: 'center', maxWidth: 280 },
   emptyAction: { marginTop: 8 },
-  conversationCard: { padding: 16, borderWidth: 1.5, gap: 10 },
+  conversationCard: { minHeight: 56, paddingHorizontal: 8, paddingVertical: 10, borderBottomWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  providerBadge: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  providerBadgeText: { fontFamily: 'Inter_700Bold', fontSize: 9, letterSpacing: 0.5 },
+  cardContent: { flex: 1, gap: 3 },
   handoffCard: { padding: 16, borderWidth: 1.5, gap: 12 },
   cardTopline: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
   provider: { fontFamily: 'Inter_700Bold', fontSize: 10, letterSpacing: 1.2 },

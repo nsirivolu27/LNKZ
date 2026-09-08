@@ -19,15 +19,15 @@ function NativeTabLayout() {
         <NativeTabs.Trigger.Icon
           sf={{ default: 'house', selected: 'house.fill' }}
         />
-        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Thread</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="build">
         <NativeTabs.Trigger.Icon sf={{ default: 'wand.and.stars', selected: 'wand.and.stars.inverse' }} />
-        <NativeTabs.Trigger.Label>Build</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Packet</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="handoffs">
         <NativeTabs.Trigger.Icon sf={{ default: 'link', selected: 'link.circle.fill' }} />
-        <NativeTabs.Trigger.Label>Handoffs</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Handoff</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="settings">
         <NativeTabs.Trigger.Icon sf={{ default: 'gearshape', selected: 'gearshape.fill' }} />
@@ -49,7 +49,7 @@ function ClassicTabLayout() {
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.mutedForeground,
-        headerShown: true,
+        headerShown: false,
         tabBarStyle: {
           position: 'absolute',
           backgroundColor: isIOS ? 'transparent' : colors.background,
@@ -78,7 +78,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Thread',
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="house" tintColor={color} size={24} />
@@ -90,14 +90,14 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="build"
         options={{
-          title: 'Build',
+          title: 'Packet',
           tabBarIcon: ({ color }) => isIOS ? <SymbolView name="wand.and.stars" tintColor={color} size={24} /> : <Feather name="edit-3" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="handoffs"
         options={{
-          title: 'Handoffs',
+          title: 'Handoff',
           tabBarIcon: ({ color }) => isIOS ? <SymbolView name="link" tintColor={color} size={24} /> : <Feather name="link" size={22} color={color} />,
         }}
       />
