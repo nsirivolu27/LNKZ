@@ -19,6 +19,82 @@ afterEach(async () => {
   if (enabled) await clearPostgresData();
 });
 
+test("Postgres migrations roll back a failed attempt and can be retried", { skip: !enabled }, async () => {
+  const previousAppRole = process.env.LNKZ_DATABASE_APP_ROLE;
+  process.env.LNKZ_DATABASE_APP_ROLE = "invalid-role";
+  try {
+    await assert.rejects(
+      runPostgresMigrations(migrationUrl),
+      /LNKZ_DATABASE_APP_ROLE must be a lowercase PostgreSQL identifier/,
+    );
+  } finally {
+    if (previousAppRole === undefined) {
+      delete process.env.LNKZ_DATABASE_APP_ROLE;
+    } else {
+      process.env.LNKZ_DATABASE_APP_ROLE = previousAppRole;
+    }
+  }
+
+  const migrationPool = new Pool({ connectionString: migrationUrl, ssl: postgresSsl(), max: 1 });
+  try {
+    await assert.rejects(
+      migrationPool.query("select version from schema_migrations"),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "42P01",
+    );
+    const tables = await migrationPool.query<{ table_name: string }>(
+      `
+        select table_name
+        from information_schema.tables
+        where table_schema = 'public'
+          and table_name in ('workspaces', 'conversations', 'messages', 'handoffs', 'events', 'rate_limit_buckets', 'instance_identity')
+        order by table_name
+      `,
+    );
+    assert.deepEqual(tables.rows, []);
+  } finally {
+    await migrationPool.end();
+  }
+
+  assert.equal(await runPostgresMigrations(migrationUrl), 3);
+  const appPool = new Pool({ connectionString: appUrl, ssl: postgresSsl(), max: 1 });
+  try {
+    const versions = await appPool.query<{ version: number }>("select version from schema_migrations order by version");
+    assert.deepEqual(
+      versions.rows.map((row) => Number(row.version)),
+      [1, 2, 3],
+    );
+    const tables = await appPool.query<{ table_name: string }>(
+      `
+        select table_name
+        from information_schema.tables
+        where table_schema = 'public' and table_name = 'instance_identity'
+      `,
+    );
+    assert.deepEqual(tables.rows, [{ table_name: "instance_identity" }]);
+  } finally {
+    await appPool.end();
+  }
+
+  const store = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
+  const id = `postgres-migration-retry-${Date.now()}`;
+  try {
+    const conversation = await store.save({
+      id,
+      title: "Migration retry",
+      summary: "The schema remained usable after a failed migration attempt.",
+      source: { provider: "test" },
+      participants: ["test"],
+      tags: ["migration"],
+      messages: [{ role: "user", content: "Retry the migration safely." }],
+    });
+    assert.equal(conversation.id, id);
+    assert.equal((await store.get(id))?.id, id);
+  } finally {
+    await store.remove(id);
+    store.close();
+  }
+});
+
 test("Postgres integration uses the restricted application role", { skip: !enabled || !expectedAppRole }, async () => {
   await runPostgresMigrations(migrationUrl);
   const pool = new Pool({ connectionString: appUrl, ssl: postgresSsl(), max: 1 });
