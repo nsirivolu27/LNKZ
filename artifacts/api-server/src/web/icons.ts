@@ -12,6 +12,12 @@ const PATHS: Record<string, string> = {
   inbox: '<path d="M4 13h4l1.4 2.5h5.2L16 13h4"/><path d="M6.2 5h11.6l2.2 8v4.5A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5V13Z"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7"/>',
   bot: '<rect x="4.5" y="8" width="15" height="11" rx="3"/><path d="M12 4.5V8"/><circle cx="9.5" cy="13" r="1.1"/><circle cx="14.5" cy="13" r="1.1"/>',
+  alert: '<path d="m12 4 8 15H4Z"/><path d="M12 9v4"/><path d="M12 16h.01"/>',
+  arrowLeft: '<path d="M19 12H5"/><path d="m11 18-6-6 6-6"/>',
+  chevron: '<path d="m9 6 6 6-6 6"/>',
+  copy: '<rect x="9" y="9" width="10" height="10" rx="1.5"/><path d="M15 9V6.5A1.5 1.5 0 0 0 13.5 5h-7A1.5 1.5 0 0 0 5 6.5v7A1.5 1.5 0 0 0 6.5 15H9"/>',
+  file: '<path d="M6 3.5h8l4 4v13H6Z"/><path d="M14 3.5v4h4"/>',
+  send: '<path d="m4 4 17 8-17 8 3.2-8Z"/><path d="M7.2 12H21"/>',
 };
 
 export function icon(name: string, size = 18): string {

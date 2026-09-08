@@ -211,12 +211,12 @@ function renderQuickSuccess(): void {
 
 function renderQuickImport(): void {
   panel.innerHTML = `<div class="quick-import-card">
-    <button class="quick-back" type="button" data-action="back">${icon("arrow-left", 15)} Back to recent conversations</button>
+    <button class="quick-back" type="button" data-action="back">${icon("arrowLeft", 15)} Back to recent conversations</button>
     <div class="quick-eyebrow"><span></span> bring a conversation in</div>
     <h1>Start with a conversation.</h1>
     <p>Paste a copied chat or export. LNKZ keeps the source intact and prepares it for a private Claude handoff.</p>
     <form id="quick-import-form">
-      <div class="quick-import-fields"><label for="quick-import-format">Source<select id="quick-import-format"><option value="auto">Detect automatically</option><option value="chatgpt">ChatGPT export</option><option value="claude">Claude export</option><option value="gemini">Gemini export</option><option value="markdown">Markdown</option><option value="text">Plain text</option></select></label><label for="quick-import-title">Name <span>optional</span><input id="quick-import-title" type="text" placeholder="A useful name" /></label></div>
+      <div class="quick-import-fields"><label for="quick-import-format">Source<select id="quick-import-format"><option value="auto">Detect automatically</option><option value="chatgpt">ChatGPT export</option><option value="claude">Claude export</option><option value="gemini">Gemini export</option><option value="markdown">Markdown</option><option value="text">Plain text</option></select></label><div class="quick-import-hint">LNKZ will keep the imported title and source information.</div></div>
       <label for="quick-import-data">Conversation<textarea id="quick-import-data" rows="9" placeholder="Paste the conversation here"></textarea></label>
       <div id="quick-import-error" class="quick-error" hidden role="alert"></div>
       <div class="quick-form-actions"><button class="button secondary" type="button" data-action="back">Cancel</button><button class="quick-send-button" type="submit" ${quickState.importing ? "disabled" : ""}>${quickState.importing ? `<span class="quick-spinner"></span> Importing…` : `${icon("inbox", 15)} Import conversation`}</button></div>
@@ -233,7 +233,6 @@ async function importQuickConversation(event: SubmitEvent): Promise<void> {
   event.preventDefault();
   const data = panel.querySelector<HTMLTextAreaElement>("#quick-import-data")?.value.trim() ?? "";
   const format = panel.querySelector<HTMLSelectElement>("#quick-import-format")?.value ?? "auto";
-  const title = panel.querySelector<HTMLInputElement>("#quick-import-title")?.value.trim() ?? "";
   const errorBox = panel.querySelector<HTMLElement>("#quick-import-error");
   if (!data) {
     if (errorBox) {
@@ -245,7 +244,7 @@ async function importQuickConversation(event: SubmitEvent): Promise<void> {
   quickState.importing = true;
   renderQuickImport();
   try {
-    const result = await client.importPayload({ payload: data, format, ...(title ? { tags: [title] } : {}) });
+    const result = await client.importPayload({ payload: data, format });
     const imported = result.conversations ?? [];
     if (!imported.length) throw new Error("No conversation was found in that import.");
     quickState.conversations = [...imported, ...quickState.conversations.filter((conversation) => !imported.some((candidate) => candidate.id === conversation.id))];

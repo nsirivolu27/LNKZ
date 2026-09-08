@@ -51,7 +51,7 @@ export function buildForwardedContextHeaders(
   secret = process.env.LNKZ_MCP_CONTEXT_SECRET,
 ): Record<string, string> {
   const context = currentRequestContext();
-  if (!secret?.trim() || !context || context.authMethod === "default") return {};
+  if (!validSecret(secret) || !context || context.authMethod === "default") return {};
 
   const issuedAt = Date.now();
   const payload = {
@@ -72,7 +72,7 @@ export function readForwardedContext(
   secret = process.env.LNKZ_MCP_CONTEXT_SECRET,
   now = Date.now(),
 ): RequestContext | undefined {
-  if (!value || !secret?.trim()) return undefined;
+  if (!value || !validSecret(secret)) return undefined;
   const separator = value.lastIndexOf(".");
   if (separator <= 0) return undefined;
   const encoded = value.slice(0, separator);
@@ -128,6 +128,10 @@ function encodePayload(payload: unknown): string {
 
 function sign(value: string, secret: string): string {
   return createHmac("sha256", secret).update(value).digest("base64url");
+}
+
+function validSecret(secret: string | undefined): secret is string {
+  return Boolean(secret?.trim() && secret.trim().length >= 32);
 }
 
 function isScope(value: unknown): value is Scope {

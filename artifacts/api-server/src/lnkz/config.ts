@@ -58,9 +58,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const mcpEnabled = boolean(env.LNKZ_MCP_ENABLED, true);
   const apiKey = env.LNKZ_API_KEY?.trim();
   const mcpAuthRequired = boolean(env.LNKZ_MCP_API_KEY_REQUIRED, false);
-  const mcpContextSecret = env.LNKZ_MCP_CONTEXT_SECRET?.trim() || undefined;
+  let mcpContextSecret = env.LNKZ_MCP_CONTEXT_SECRET?.trim() || undefined;
   if (mcpContextSecret && mcpContextSecret.length < 32) {
-    throw new Error("LNKZ_MCP_CONTEXT_SECRET must be at least 32 characters.");
+    if (env.NODE_ENV === "production") {
+      throw new Error("LNKZ_MCP_CONTEXT_SECRET must be at least 32 characters.");
+    }
+    console.warn("[config] LNKZ_MCP_CONTEXT_SECRET is too short; forwarded context signing is disabled outside production.");
+    mcpContextSecret = undefined;
   }
   const allowUnauthenticated = boolean(env.LNKZ_ALLOW_UNAUTHENTICATED, env.NODE_ENV !== "production");
   const defaultWorkspaceId = env.LNKZ_POSTGRES_WORKSPACE_ID?.trim() || DEFAULT_WORKSPACE_ID;

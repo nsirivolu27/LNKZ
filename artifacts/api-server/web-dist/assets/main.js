@@ -1,4 +1,4 @@
-import{a,b as e}from"./chunks/chunk-4YV635CM.js";var o=a.repositoryUrl,i=["Slack","Jira","Figma","Docs","Any MCP server"];function c(){return`
+import{a,b as e}from"./chunks/chunk-BO4MWN2T.js";var o=a.repositoryUrl,i=["Slack","Jira","Figma","Docs","Any MCP server"];function c(){return`
 <main>
   <section class="hero" id="top">
     <nav class="nav" aria-label="Primary navigation">
