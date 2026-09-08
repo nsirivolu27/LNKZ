@@ -106,6 +106,86 @@ test("Postgres migrations roll back a failed attempt and can be retried", { skip
   }
 });
 
+test("Postgres migrations roll back a failed migration statement and can be retried", { skip: !enabled }, async () => {
+  await resetPostgresSchema();
+  const migrationPool = new Pool({ connectionString: migrationUrl, ssl: postgresSsl(), max: 1 });
+  try {
+    await migrationPool.query(`
+      create or replace function lnkz_test_fail_on_actor_index()
+      returns event_trigger
+      language plpgsql
+      as $$
+      declare
+        command record;
+      begin
+        for command in select * from pg_event_trigger_ddl_commands() loop
+          if command.object_identity = 'public.events_workspace_actor_at_idx' then
+            raise exception 'intentional migration SQL failure for rollback coverage';
+          end if;
+        end loop;
+      end;
+      $$
+    `);
+    await migrationPool.query(`
+      create event trigger lnkz_test_fail_on_actor_index
+      on ddl_command_end
+      execute function lnkz_test_fail_on_actor_index()
+    `);
+
+    await assert.rejects(
+      runPostgresMigrations(migrationUrl),
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.match(error.message, /Migration 2 \(002_identity_context\.sql\) failed/);
+        assert.match(error.message, /intentional migration SQL failure for rollback coverage/);
+        return true;
+      },
+    );
+
+    const tables = await migrationPool.query<{ table_name: string }>(`
+      select table_name
+      from information_schema.tables
+      where table_schema = 'public'
+        and table_name in (
+          'schema_migrations',
+          'workspaces',
+          'conversations',
+          'messages',
+          'handoffs',
+          'events',
+          'rate_limit_buckets',
+          'instance_identity'
+        )
+      order by table_name
+    `);
+    assert.deepEqual(tables.rows, []);
+  } finally {
+    await migrationPool.query("drop event trigger if exists lnkz_test_fail_on_actor_index");
+    await migrationPool.query("drop function if exists lnkz_test_fail_on_actor_index()");
+    await migrationPool.end();
+  }
+
+  assert.equal(await runPostgresMigrations(migrationUrl), 3);
+  const store = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
+  const id = `postgres-migration-sql-retry-${Date.now()}`;
+  try {
+    const conversation = await store.save({
+      id,
+      title: "Migration SQL retry",
+      summary: "The schema remained usable after a failed migration statement.",
+      source: { provider: "test" },
+      participants: ["test"],
+      tags: ["migration"],
+      messages: [{ role: "user", content: "Retry the failed migration safely." }],
+    });
+    assert.equal(conversation.id, id);
+    assert.equal((await store.get(id))?.id, id);
+  } finally {
+    await store.remove(id);
+    store.close();
+  }
+});
+
 test("Postgres migration SQL failures identify the migration and preserve the database error", async () => {
   const databaseError = new Error('column "actor_id" already exists');
   const client = {
@@ -450,6 +530,28 @@ test("Postgres RLS fails closed for unset, empty, and foreign workspace context"
 
 function postgresSsl(): false | { rejectUnauthorized: boolean } {
   return process.env.DATABASE_SSL === "false" ? false : { rejectUnauthorized: true };
+}
+
+async function resetPostgresSchema(): Promise<void> {
+  const pool = new Pool({ connectionString: migrationUrl, ssl: postgresSsl(), max: 1 });
+  try {
+    await pool.query("drop event trigger if exists lnkz_test_fail_on_actor_index");
+    await pool.query("drop function if exists lnkz_test_fail_on_actor_index()");
+    await pool.query(`
+      drop table if exists
+        schema_migrations,
+        instance_identity,
+        rate_limit_buckets,
+        events,
+        handoffs,
+        messages,
+        conversations,
+        workspaces
+      cascade
+    `);
+  } finally {
+    await pool.end();
+  }
 }
 
 async function clearPostgresIdentity(): Promise<void> {
