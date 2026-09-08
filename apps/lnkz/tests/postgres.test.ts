@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { Pool } from "pg";
-import { toIdentityDocument } from "../src/lnkz/identity.js";
+import { toIdentityDocument, verifyHandoffPacket } from "../src/lnkz/identity.js";
 import { migrateSqliteToPostgres } from "../src/lnkz/store/migrate-sqlite.js";
 import { PostgresConversationStore, DEFAULT_WORKSPACE_ID } from "../src/lnkz/store/postgres.js";
 import { runPostgresMigrations } from "../src/lnkz/store/migrate.js";
@@ -231,6 +231,57 @@ test("SQLite to Postgres migration does not replace an existing target identity"
     }
   } finally {
     await clearPostgresIdentity();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("SQLite to Postgres migration redeems handoffs with the existing target identity", { skip: !enabled }, async () => {
+  await runPostgresMigrations(migrationUrl);
+  await clearPostgresData();
+
+  const directory = await mkdtemp(join(tmpdir(), "lnkz-postgres-migration-"));
+  const sqlitePath = join(directory, "source.db");
+  const sourceStore = new SqliteConversationStore(sqlitePath);
+  let sourceIdentity;
+  let handoff;
+  try {
+    sourceIdentity = await sourceStore.ensureInstanceIdentity("Migrated handoff source");
+    const conversation = await sourceStore.save({
+      id: "migrated-handoff-conversation",
+      title: "Migrated handoff",
+      source: { provider: "test" },
+      participants: ["test"],
+      messages: [{ role: "user", content: "A migrated handoff is redeemed after import." }],
+    });
+    handoff = await sourceStore.createHandoff({ conversationId: conversation.id, maxUses: 1 });
+  } finally {
+    sourceStore.close();
+  }
+
+  const targetStore = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
+  let targetIdentity;
+  try {
+    targetIdentity = await targetStore.ensureInstanceIdentity("Existing handoff target");
+  } finally {
+    targetStore.close();
+  }
+
+  try {
+    assert.notEqual(targetIdentity.instanceId, sourceIdentity.instanceId);
+    await migrateSqliteToPostgres({ sqlite: sqlitePath, database: appUrl, dryRun: false });
+
+    const migratedTarget = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
+    try {
+      const packet = await migratedTarget.redeemHandoff(handoff.token);
+      assert.ok(packet);
+      assert.equal(packet.signingInstanceId, targetIdentity.instanceId);
+      assert.equal(verifyHandoffPacket(packet, targetIdentity.publicKeyPem), true);
+      assert.equal(verifyHandoffPacket(packet, sourceIdentity.publicKeyPem), false);
+    } finally {
+      migratedTarget.close();
+    }
+  } finally {
+    await clearPostgresData();
     await rm(directory, { recursive: true, force: true });
   }
 });
