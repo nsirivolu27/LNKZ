@@ -42,7 +42,7 @@ export default function HandoffsScreen() {
         eyebrow="03 / THE HANDOFF"
         title="What’s in motion."
         description="Active links are intentionally visible. Revoke anything that has served its purpose."
-        right={<IconButton icon="plus" label="Create handoff" onPress={() => router.push('/import')} />}
+        right={<IconButton icon="plus" label="Choose a conversation" onPress={() => router.push('/(tabs)')} />}
       />
       <View style={styles.summary}>
         <SectionLabel>ACTIVE LINKS</SectionLabel>

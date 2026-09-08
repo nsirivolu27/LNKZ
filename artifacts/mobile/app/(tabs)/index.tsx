@@ -41,9 +41,18 @@ export default function LibraryScreen() {
       return result.conversations;
     },
   });
+  const statsQuery = useQuery({
+    queryKey: ['stats'],
+    enabled: Boolean(api),
+    queryFn: async () => {
+      if (!api) throw new ApiError('Connect to a relay first.', 0);
+      return api.stats();
+    },
+  });
 
   const conversations = useMemo(() => libraryQuery.data ?? [], [libraryQuery.data]);
   const messageCount = conversations.reduce((total, item) => total + item.messageCount, 0);
+  const stats = statsQuery.data?.stats;
   const error = libraryQuery.error instanceof Error ? libraryQuery.error.message : null;
 
   return (
@@ -121,10 +130,10 @@ export default function LibraryScreen() {
         )}
 
         <View style={[styles.statsRow, { borderColor: colors.border }]}>
-          <FieldHandoffStat label="VERSIONS" value="0.2" style={styles.statHalf} />
-          <FieldHandoffStat label="THREADS" value={String(conversations.length)} style={styles.statHalf} />
-          <FieldHandoffStat label="MESSAGES" value={messageCount.toLocaleString()} style={styles.statHalf} />
-          <FieldHandoffStat label="STATUS" value={api ? 'LIVE' : 'SETUP'} style={styles.statHalf} />
+          <FieldHandoffStat label="THREADS" value={String(stats?.conversations ?? conversations.length)} style={styles.statHalf} />
+          <FieldHandoffStat label="MESSAGES" value={(stats?.messages ?? messageCount).toLocaleString()} style={styles.statHalf} />
+          <FieldHandoffStat label="HANDOFFS" value={String(stats?.activeHandoffs ?? 0)} style={styles.statHalf} />
+          <FieldHandoffStat label="SOURCES" value={String(stats?.providers.length ?? 0)} style={styles.statHalf} />
         </View>
         <View style={[styles.footer, { backgroundColor: colors.foreground }]}>
           <Text style={[styles.footerText, { color: colors.background }]}>RELEASE NOTES / REUSE CONTEXT / PRESERVE LINKS / SHARE LESS CHAOS / MORE SIGNAL.</Text>

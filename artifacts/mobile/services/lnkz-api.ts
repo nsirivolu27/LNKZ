@@ -152,6 +152,21 @@ export interface HealthResponse {
   connectors?: { id: string; configured: boolean }[];
 }
 
+export interface StoreStats {
+  conversations: number;
+  messages: number;
+  providers: { provider: string; count: number }[];
+  activeHandoffs: number;
+  events: number;
+}
+
+export interface ConnectorStatus {
+  id: string;
+  label: string;
+  configured: boolean;
+  detail: string;
+}
+
 export interface ConversationResponse {
   conversation: Conversation;
   analysis?: ConversationAnalysis;
@@ -250,6 +265,14 @@ export class LnkzApiClient {
 
   health(): Promise<HealthResponse> {
     return this.request<HealthResponse>('/health');
+  }
+
+  stats() {
+    return this.request<{ stats: StoreStats }>('/api/stats');
+  }
+
+  connectors() {
+    return this.request<{ connectors: ConnectorStatus[] }>('/api/connectors');
   }
 
   listConversations(options: { provider?: string; tag?: string; participant?: string } = {}) {

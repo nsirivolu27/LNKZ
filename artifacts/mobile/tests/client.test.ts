@@ -79,6 +79,23 @@ test('packet generation sends bounded budget and returns markdown for copy/share
   assert.equal(response.packet.markdown, '# Launch decision');
 });
 
+test('stats and connector status stay behind the authenticated API client', async () => {
+  let call = 0;
+  mockFetch((url, init) => {
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer key');
+    call += 1;
+    if (url.endsWith('/api/stats')) {
+      return Response.json({ stats: { conversations: 2, messages: 8, providers: [{ provider: 'claude', count: 2 }], activeHandoffs: 1, events: 4 } });
+    }
+    assert.equal(url, 'https://relay.example.com/api/connectors');
+    return Response.json({ connectors: [{ id: 'lnkz', label: 'LNKZ', configured: true, detail: 'Local relay' }] });
+  });
+  const client = new LnkzApiClient({ serverUrl: 'relay.example.com', apiKey: 'key' });
+  assert.equal((await client.stats()).stats.activeHandoffs, 1);
+  assert.equal((await client.connectors()).connectors[0]?.configured, true);
+  assert.equal(call, 2);
+});
+
 test('redacts token-like content before error or warning text reaches the UI', () => {
   assert.equal(
     redactSensitiveText('authorization: Bearer abcdefghijklmnop and api_key=sk_live_1234567890'),
