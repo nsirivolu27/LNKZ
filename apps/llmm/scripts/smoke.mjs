@@ -1,0 +1,203 @@
+#!/usr/bin/env node
+/**
+ * End-to-end smoke test against a real LNKZ REST relay.
+ *
+ * The unit tests exercise the store in memory. This one boots the built relay,
+ * then drives it the way a client actually would: REST import, an
+ * unauthenticated share redemption, and a revocation. It catches wiring
+ * mistakes the unit tests cannot see - middleware order, auth, and static serving.
+ *
+ * Usage:
+ *   node scripts/smoke.mjs                 # boots lnkz-relay/dist/server.js
+ *   node scripts/smoke.mjs http://host:port  # tests an already-running server
+ */
+import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomBytes } from "node:crypto";
+
+const external = process.argv[2];
+const execFileAsync = promisify(execFile);
+const postgresUrl = process.env.SMOKE_DATABASE_URL;
+const apiKey = process.env.LNKZ_API_KEY ?? randomBytes(12).toString("hex");
+const port = Number(process.env.SMOKE_PORT ?? 3199);
+const baseUrl = external ?? `http://127.0.0.1:${port}`;
+
+let child;
+let dataDir;
+let failures = 0;
+
+function check(label, condition, detail = "") {
+  if (condition) {
+    console.log(`  ok   ${label}`);
+  } else {
+    failures += 1;
+    console.error(`  FAIL ${label}${detail ? ` — ${detail}` : ""}`);
+  }
+}
+
+async function request(path, init = {}) {
+  const headers = { authorization: `Bearer ${apiKey}`, ...init.headers };
+  if (init.body) headers["content-type"] = "application/json";
+  const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  const text = await response.text();
+  let body;
+  try {
+    body = text ? JSON.parse(text) : undefined;
+  } catch {
+    body = text;
+  }
+  return { status: response.status, body, headers: response.headers };
+}
+
+async function boot() {
+  dataDir = await mkdtemp(join(tmpdir(), "lnkz-smoke-"));
+  if (postgresUrl) {
+    console.log("Running Postgres migrations for smoke test...");
+    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    await execFileAsync(npm, ["--prefix", "lnkz-relay", "run", "db:migrate"], {
+      env: { ...process.env, DATABASE_URL: postgresUrl },
+    });
+  }
+  child = spawn(process.execPath, ["dist/server.js"], {
+    cwd: new URL("../lnkz-relay/", import.meta.url).pathname,
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      LNKZ_API_KEY: apiKey,
+      LNKZ_DB_FILE: join(dataDir, "lnkz.db"),
+      LNKZ_DATA_FILE: join(dataDir, "absent.json"),
+      DATABASE_URL: postgresUrl ?? "",
+      DATABASE_SSL: postgresUrl ? (process.env.DATABASE_SSL ?? "false") : "false",
+      LNKZ_POSTGRES_WORKSPACE_ID: process.env.LNKZ_POSTGRES_WORKSPACE_ID
+        ?? "00000000-0000-4000-8000-000000000001",
+      LNKZ_PUBLIC_BASE_URL: baseUrl,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stderr.on("data", (chunk) => process.stderr.write(`  [server] ${chunk}`));
+
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${baseUrl}/health`);
+      if (response.ok) return;
+    } catch {
+      // still starting
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("Server did not become healthy in 20s.");
+}
+
+async function main() {
+  if (!external) {
+    console.log("Booting the built server...");
+    await boot();
+  }
+  console.log(`Smoke testing ${baseUrl} (${postgresUrl ? "Postgres" : "SQLite"})\n`);
+
+  const health = await request("/health");
+  check("health reports the service and its connectors", health.status === 200 && health.body?.service === "lnkz");
+
+  const unauthorized = await fetch(`${baseUrl}/api/stats`);
+  check("the API refuses an unauthenticated request", unauthorized.status === 401, `got ${unauthorized.status}`);
+
+  const imported = await request("/api/conversations/import", {
+    method: "POST",
+    body: JSON.stringify({
+      payload: "User: which store did we pick?\nAssistant: We decided to use SQLite for the relay.",
+      tags: ["smoke"],
+    }),
+  });
+  const conversation = imported.body?.conversations?.[0];
+  check("a plain paste imports over REST", imported.status === 201 && Boolean(conversation), JSON.stringify(imported.body).slice(0, 160));
+
+  const search = await request("/api/conversations/search", {
+    method: "POST",
+    body: JSON.stringify({ query: "sqlite relay" }),
+  });
+  check("full-text search finds the imported chat", search.body?.matches?.length === 1);
+
+  const packet = await request("/api/context/packet", {
+    method: "POST",
+    body: JSON.stringify({ query: "sqlite", budgetTokens: 1_000, includeExternal: false }),
+  });
+  check(
+    "a context packet is built within budget",
+    packet.body?.packet?.usedTokens <= packet.body?.packet?.budgetTokens
+      && packet.body.packet.markdown.includes("LNKZ context packet"),
+  );
+
+  const exported = await request(`/api/conversations/${conversation.id}/export?format=openai`);
+  check(
+    "a conversation exports back out as a chat-completions payload",
+    exported.status === 200 && Array.isArray(exported.body?.messages) && exported.body.messages.length === 2,
+    JSON.stringify(exported.body).slice(0, 160),
+  );
+
+  const latex = await fetch(`${baseUrl}/api/conversations/${conversation.id}/export?format=latex`, {
+    headers: { authorization: `Bearer ${apiKey}` },
+  });
+  const tex = await latex.text();
+  check(
+    "a conversation exports as a compilable LaTeX document",
+    latex.status === 200 && tex.includes("\\documentclass") && tex.includes("\\end{document}"),
+    tex.slice(0, 120),
+  );
+
+  const graph = await request("/api/graph?limit=10");
+  check(
+    "the conversation graph builds over the stored corpus",
+    graph.status === 200 && Array.isArray(graph.body?.graph?.nodes) && graph.body.graph.nodes.length > 0,
+    JSON.stringify(graph.body).slice(0, 160),
+  );
+
+  const targets = await request("/api/publish/targets");
+  check(
+    "publish targets report cleanly when none are configured",
+    targets.status === 200 && Array.isArray(targets.body?.targets),
+    JSON.stringify(targets.body).slice(0, 160),
+  );
+
+  const badFormat = await request(`/api/conversations/${conversation.id}/export?format=nope`);
+  check("an unknown export format is refused", badFormat.status === 400, `got ${badFormat.status}`);
+
+  const handoff = await request(`/api/conversations/${conversation.id}/handoffs`, {
+    method: "POST",
+    body: JSON.stringify({ ttlMinutes: 10, maxUses: 2, redact: true, audience: "smoke test" }),
+  });
+  check("a handoff is minted with a share URL", handoff.status === 201 && handoff.body.shareUrl.includes("/share/"));
+
+  const redeemed = await fetch(`${baseUrl}/share/${handoff.body.token}`);
+  const packetBody = await redeemed.json();
+  check("the share link redeems without a key", redeemed.status === 200 && packetBody.conversation.id === conversation.id);
+  check("redeemed packets are not cacheable", redeemed.headers.get("cache-control") === "no-store");
+
+  const markdown = await fetch(`${baseUrl}/share/${handoff.body.token}`, { headers: { accept: "text/markdown" } });
+  check("the share link also serves Markdown", markdown.status === 200 && (await markdown.text()).startsWith("#"));
+
+  const spent = await fetch(`${baseUrl}/share/${handoff.body.token}`);
+  check("a spent handoff stops working", spent.status === 404, `got ${spent.status}`);
+
+  const events = await request("/api/events?limit=50");
+  const kinds = new Set((events.body?.events ?? []).map((event) => event.kind));
+  check("the audit trail recorded the handoff lifecycle", kinds.has("handoff.created") && kinds.has("handoff.redeemed"));
+
+  console.log(`\n${failures === 0 ? "All smoke checks passed." : `${failures} smoke check(s) failed.`}`);
+  process.exitCode = failures === 0 ? 0 : 1;
+}
+
+try {
+  await main();
+} catch (error) {
+  console.error(`\nSmoke test crashed: ${error instanceof Error ? error.message : error}`);
+  process.exitCode = 1;
+} finally {
+  child?.kill("SIGTERM");
+  if (dataDir) await rm(dataDir, { recursive: true, force: true });
+}

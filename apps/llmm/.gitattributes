@@ -1,0 +1,13 @@
+# One line-ending convention everywhere. Without this, a Windows checkout and a
+# Linux CI or container rewrite every file back and forth and each commit looks
+# like the whole repository changed.
+* text=auto eol=lf
+
+# Binary and generated files git should not try to normalize or diff.
+*.png binary
+*.jpg binary
+*.mp4 binary
+*.bundle binary
+*.tgz binary
+*.db binary
+package-lock.json -diff linguist-generated
