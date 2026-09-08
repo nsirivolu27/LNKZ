@@ -324,7 +324,7 @@ test("Postgres preserves instance identity across store reopen", { skip: !enable
   }
 });
 
-test("SQLite to Postgres migration preserves instance identity", { skip: !enabled }, async () => {
+test("SQLite to Postgres migration reports an imported instance identity", { skip: !enabled }, async () => {
   await runPostgresMigrations(migrationUrl);
   await clearPostgresIdentity();
 
@@ -332,14 +332,43 @@ test("SQLite to Postgres migration preserves instance identity", { skip: !enable
   const sqlitePath = join(directory, "source.db");
   const sourceStore = new SqliteConversationStore(sqlitePath);
   let sourceIdentity;
+  const privateConversationContent = "source conversation content stays out of migration reports";
   try {
     sourceIdentity = await sourceStore.ensureInstanceIdentity("Migrated integration test");
+    await sourceStore.save({
+      id: "migration-report-imported-private-conversation",
+      title: "Private migration conversation",
+      source: { provider: "test" },
+      participants: ["test"],
+      messages: [{ role: "user", content: privateConversationContent }],
+    });
   } finally {
     sourceStore.close();
   }
 
   try {
-    await migrateSqliteToPostgres({ sqlite: sqlitePath, database: appUrl, dryRun: false });
+    const migrationOutput: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => migrationOutput.push(args.map(String).join(" "));
+    try {
+      await migrateSqliteToPostgres({ sqlite: sqlitePath, database: appUrl, dryRun: false });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const report = JSON.parse(migrationOutput.at(-1) ?? "{}") as {
+      instanceIdentity?: {
+        sourceIdentityImported?: boolean;
+        existingTargetIdentityPreserved?: boolean;
+      };
+    };
+    assert.deepEqual(report.instanceIdentity, {
+      sourceIdentityImported: true,
+      existingTargetIdentityPreserved: false,
+    });
+    const publicOutput = migrationOutput.join("\n");
+    assert.doesNotMatch(publicOutput, /PRIVATE KEY/);
+    assert.doesNotMatch(publicOutput, new RegExp(privateConversationContent));
 
     const targetStore = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
     try {
