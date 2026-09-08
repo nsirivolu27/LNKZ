@@ -4,6 +4,11 @@ Use Node 22.16 or newer in the Node 22 line and pnpm 10.26.1. Commands below
 use Bash. Inject credentials through environment variables or a secret manager;
 the server does not automatically load `.env`. Docker Compose reads `.env`.
 
+`pnpm build` builds the relay and the web app. `pnpm start` serves the landing
+page at `/`, the console at `/console.html`, and REST/MCP on the same port. The
+Docker image includes both builds. Static pages contain no conversation data;
+the console's API calls require the configured bearer key.
+
 ## Fly.io with SQLite
 
 Prerequisites: a Fly account, billing enabled, the [Fly CLI](https://fly.io/docs/flyctl/install/),
@@ -79,7 +84,7 @@ name `LNKZ_API_KEY` or `LNKZ_API_KEYS_JSON` when authentication is missing.
 | `LNKZ_SHUTDOWN_TIMEOUT_MS` | `10000`, range 1000–120000; Fly uses 25000 below its 30-second stop window |
 | `LNKZ_TRANSFER_ALLOW_PRIVATE` | Private-address transfer refused; exact `true` is for local two-instance demos |
 | `LNKZ_BASE_URL` | `http://127.0.0.1:3100` for seed/smoke scripts; CLI URL argument wins |
-| `WEB_DIST_DIR` | Legacy configuration accepted; no console is served |
+| `WEB_DIST_DIR` | `dist/web` relative to the process working directory; optional override for built web assets |
 
 Optional connectors remain unconfigured until their inputs are complete:
 
@@ -206,3 +211,22 @@ DATABASE_URL="$RESTORED_APP_DATABASE_URL" pnpm start
 The destination must be empty. Verify readiness, search and a handoff before
 switching traffic. Restore database roles/grants separately; `pg_dump` does not
 back up global roles. Keep the original database until verification completes.
+
+## Deployment assets brought over from LLMM
+
+`render.yaml` now builds the root Dockerfile, mounts `/app/.data`, and checks
+`/ready`. Supply the public URL and admitted hosts/origins in Render before
+exposing the service. The current Fly runbook above remains the primary path.
+
+The optional AWS template lives in `infra`. From the repository root:
+
+```bash
+pnpm infra:synth
+pnpm --filter @lnkz/infra diff
+```
+
+Synthesis validates the template locally; `diff` requires AWS credentials.
+Construct IDs from LLMM are retained. The autoscaling name is shortened to fit
+AWS's 32-character limit; review the infrastructure diff before updating a stack.
+See [infra/README.md](infra/README.md)
+before deploying. Consolidation does not deploy either provider configuration.

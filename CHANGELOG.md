@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Consolidate LLMM's landing page, console, and AWS/Render assets into LNKZ.
+  Use one pnpm workspace and the current relay; preserve LLMM main as a merge
+  parent instead of retaining its older duplicate server packages.
+
 - Add a runnable two-instance demo, recorded terminal output, a seeded question
   command, and MCP client instructions. Preserve transfer origin fields when
   saving; the existing normalizers had silently dropped them.

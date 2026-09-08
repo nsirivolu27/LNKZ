@@ -10,6 +10,9 @@ LNKZ saves the conversation, extracts its decisions with source messages, and
 hands that context to the next model or person through an expiring link. It
 runs on your machine or your server, with data you own.
 
+This is the home of the combined LNKZ and LLMM project: the relay, web landing
+page, console, and deployment code are maintained together as **LNKZ**.
+
 ## Run it locally
 
 Use Node 22 and the pinned pnpm version:
@@ -32,7 +35,9 @@ Read the [recorded terminal output](docs/demo-output.txt) without installing
 anything, or play the [terminal recording](docs/demo.cast) with an asciicast
 player. [DEMO.md](DEMO.md) gives the same transfer as explicit commands.
 
-To keep your own local store, run `pnpm start`, then in another terminal:
+To keep your own local store, run `pnpm start` and open
+[the LNKZ console](http://127.0.0.1:3100/console.html). The landing page is at
+[http://127.0.0.1:3100](http://127.0.0.1:3100). In another terminal:
 
 ```bash
 pnpm seed
@@ -59,8 +64,19 @@ reversal to a seasonal ARIMA baseline. Connect your model using
 
 | Repository | What it owns |
 | --- | --- |
-| This repository | The relay and its REST and MCP surfaces |
-| [LLMM](https://github.com/nsirivolu27/LLMM) | A separate product and console built on the relay |
+| This repository | LNKZ: the relay, REST and MCP surfaces, web app, and deployment assets |
+| [LLMM](https://github.com/nsirivolu27/LLMM) | The original source repository; its product code and history are consolidated here |
 | [lnkz-mcp](https://github.com/nsirivolu27/lnkz-mcp) | A standalone MCP adapter for a remotely hosted relay |
 
 Licensed under [MIT](LICENSE).
+
+## Working on the combined product
+
+The relay stays in `src/lnkz`, the Vite app lives in `apps/web`, and optional AWS
+infrastructure lives in `infra`. One pnpm workspace and lockfile cover all three.
+`pnpm build` produces the server and web assets in `dist`; `pnpm start` serves
+both from port 3100. For frontend development, keep the relay running and use
+`pnpm dev:web` for Vite's live updates on port 5173.
+
+See [the consolidation record](docs/consolidation.md) for source history and
+the disposition of LLMM's duplicate packages.

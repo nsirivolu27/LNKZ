@@ -41,6 +41,7 @@ import type { PostgresRateLimiter } from "./store/rate-limit.js";
 import type { Conversation } from "./types.js";
 import { ZodError } from "zod";
 import { drainServer, readiness, requestLogging } from "./operations.js";
+import { mountWebRoutes } from "./web.js";
 
 const config = loadConfig();
 const { host, port, publicBaseUrl } = config;
@@ -448,6 +449,8 @@ if (config.mcp.enabled) {
     });
   }
 }
+
+mountWebRoutes(app, config.webDistDir);
 
 app.use((request, response, next) => {
   if (request.path.startsWith("/api/") || request.path === config.mcp.path) {

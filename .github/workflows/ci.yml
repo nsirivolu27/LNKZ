@@ -25,3 +25,6 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm verify:web
+      - run: pnpm verify:http
+      - run: pnpm infra:synth

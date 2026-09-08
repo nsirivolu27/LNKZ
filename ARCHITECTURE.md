@@ -3,8 +3,8 @@
 ## Five components, three surfaces
 
 The REST API is the product boundary. REST, MCP over stdio, and stateless
-Streamable HTTP MCP call the same workflow and storage code. A web client is a
-separate project that calls REST.
+Streamable HTTP MCP call the same workflow and storage code. The web client in
+`apps/web` calls REST and shares no database access with the relay.
 
 1. **Store** (`src/lnkz/store/`): `ConversationStore` separates callers from
    SQLite (the default) and Postgres. SQLite uses built-in `node:sqlite`, FTS5,
@@ -42,3 +42,13 @@ by [MCP.md](MCP.md#multi-node-context-forwarding).
 One process and one database are enough. [DEPLOY.md](DEPLOY.md) owns environment
 variables, migrations, startup, health checks and backups. [ROADMAP.md](ROADMAP.md)
 tracks unfinished operational and transfer work.
+
+## Workspace and build
+
+The root package owns the relay. `@lnkz/web` owns the existing landing page and
+console brought over from LLMM. `@lnkz/infra` owns the optional AWS CDK stack.
+All packages share the root pnpm lockfile. The build bundles the relay into
+`dist/index.mjs` and the web app into `dist/web`. The same Node process serves
+the two public HTML entry points and their assets alongside authenticated REST
+and MCP. Unknown API paths remain JSON 404 responses; source and configuration
+files are never part of the static root.
