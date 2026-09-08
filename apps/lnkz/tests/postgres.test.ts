@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import { Pool } from "pg";
 import { toIdentityDocument } from "../src/lnkz/identity.js";
 import { migrateSqliteToPostgres } from "../src/lnkz/store/migrate-sqlite.js";
@@ -13,6 +13,10 @@ import { SqliteConversationStore } from "../src/lnkz/store/sqlite.js";
 const migrationUrl = process.env.LNKZ_POSTGRES_MIGRATION_URL;
 const appUrl = process.env.LNKZ_POSTGRES_TEST_URL;
 const enabled = Boolean(migrationUrl && appUrl);
+
+afterEach(async () => {
+  if (enabled) await clearPostgresData();
+});
 
 test("Postgres preserves instance identity across store reopen", { skip: !enabled }, async () => {
   await runPostgresMigrations(migrationUrl);
@@ -126,6 +130,20 @@ function postgresSsl(): false | { rejectUnauthorized: boolean } {
 async function clearPostgresIdentity(): Promise<void> {
   const pool = new Pool({ connectionString: appUrl, ssl: postgresSsl(), max: 1 });
   try {
+    await pool.query("delete from instance_identity");
+  } finally {
+    await pool.end();
+  }
+}
+
+async function clearPostgresData(): Promise<void> {
+  const pool = new Pool({ connectionString: appUrl, ssl: postgresSsl(), max: 1 });
+  try {
+    await pool.query("select set_config('app.workspace_id', $1, false)", [DEFAULT_WORKSPACE_ID]);
+    await pool.query("delete from events");
+    await pool.query("delete from handoffs");
+    await pool.query("delete from messages");
+    await pool.query("delete from conversations");
     await pool.query("delete from instance_identity");
   } finally {
     await pool.end();

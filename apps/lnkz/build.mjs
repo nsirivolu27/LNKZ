@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { rm } from "node:fs/promises";
+import { cp, rm } from "node:fs/promises";
 
 await rm("dist", { recursive: true, force: true });
 await build({
@@ -16,3 +16,4 @@ await build({
     js: "import { createRequire as __createRequire } from 'node:module'; globalThis.require = __createRequire(import.meta.url);",
   },
 });
+await cp("src/lnkz/store/migrations", "dist/lnkz/store/migrations", { recursive: true });

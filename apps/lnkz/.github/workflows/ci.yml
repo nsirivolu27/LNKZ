@@ -12,6 +12,24 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      LNKZ_POSTGRES_MIGRATION_URL: postgresql://lnkz_test:lnkz_test@localhost:5432/lnkz_test
+      LNKZ_POSTGRES_TEST_URL: postgresql://lnkz_test:lnkz_test@localhost:5432/lnkz_test
+      DATABASE_SSL: "false"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: lnkz_test
+          POSTGRES_USER: lnkz_test
+          POSTGRES_PASSWORD: lnkz_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lnkz_test -d lnkz_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,6 +40,11 @@ jobs:
           corepack enable
           corepack prepare pnpm@10.26.1 --activate
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - run: pnpm --filter lnkz typecheck
+      - run: pnpm --filter lnkz test
+      - run: pnpm --filter lnkz build
+      - name: Verify the disposable database is clean
+        if: always()
+        run: |
+          PGPASSWORD=lnkz_test psql "$LNKZ_POSTGRES_TEST_URL" \
+            --command 'truncate table events, handoffs, messages, conversations, instance_identity'
