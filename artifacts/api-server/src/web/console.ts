@@ -14,16 +14,34 @@ const tabs: { id: TabId; label: string; icon: string }[] = [
   { id: "team", label: "Team access", icon: "network" },
 ];
 const state: { tab: TabId; selected: string | null } = { tab: "import", selected: null };
+type QuickState = {
+  conversations: ConversationSummary[];
+  selected: string | null;
+  loading: boolean;
+  importing: boolean;
+  sending: boolean;
+  importOpen: boolean;
+  detailsOpen: boolean;
+  error: string;
+  sent: { title: string; shareUrl: string; expiresAt: string; maxUses: number } | null;
+};
+const quickState: QuickState = {
+  conversations: [],
+  selected: null,
+  loading: true,
+  importing: false,
+  sending: false,
+  importOpen: false,
+  detailsOpen: false,
+  error: "",
+  sent: null,
+};
 const app = document.getElementById("app")!;
 
-app.innerHTML = `<header class="console-header"><a class="brand" href="/">${icon("link", 19)}<span>${BRAND.productName}</span></a><div class="auth-actions"><a class="button secondary" href="/api/login?returnTo=${encodeURIComponent("/console.html")}">Sign in</a><form class="key-field" id="api-key-form"><label for="api-key">${BRAND.apiKeyLabel}</label><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="${BRAND.apiKeyPlaceholder}" /><small>${BRAND.apiCompatibilityLabel}</small></form></div></header><nav class="console-tabs">${tabs.map((tab) => `<button id="tab-${tab.id}" class="console-tab" type="button">${icon(tab.icon, 16)} ${tab.label}</button>`).join("")}</nav><main id="panel" class="console-panel"></main><div id="toast" class="toast" hidden></div>`;
+app.innerHTML = `<div class="quick-app"><header class="quick-header"><a class="quick-brand" href="/"><span class="quick-brand-mark">${icon("link", 15)}</span><span><strong>LNKZ</strong><small>private handoff</small></span></a><div class="quick-header-actions"><span class="quick-private">${icon("shield", 14)} Stays private</span><a class="button secondary quick-sign-in" href="/api/login?returnTo=${encodeURIComponent("/console.html")}">Sign in</a></div></header><main id="panel" class="console-panel quick-panel"></main></div><div id="toast" class="toast" hidden></div>`;
 const panel = document.getElementById("panel")!;
 const toast = document.getElementById("toast")!;
-const keyInput = document.getElementById("api-key") as HTMLInputElement;
-keyInput.value = getApiKey();
-document.getElementById("api-key-form")!.addEventListener("submit", (event) => { event.preventDefault(); setApiKey(keyInput.value.trim()); notify(`${BRAND.apiKeyLabel} saved for this browser session.`); });
-for (const tab of tabs) document.getElementById(`tab-${tab.id}`)!.addEventListener("click", () => selectTab(tab.id));
-selectTab("import");
+void renderQuickSend();
 
 function selectTab(tab: TabId): void {
   state.tab = tab;
@@ -34,6 +52,233 @@ function selectTab(tab: TabId): void {
   if (tab === "handoffs") void renderHandoffs();
   if (tab === "status") void renderStatus();
   if (tab === "team") void renderTeam();
+}
+
+async function renderQuickSend(): Promise<void> {
+  if (quickState.sent) {
+    renderQuickSuccess();
+    return;
+  }
+  if (quickState.importOpen) {
+    renderQuickImport();
+    return;
+  }
+  panel.innerHTML = quickSendMarkup();
+  bindQuickSendEvents();
+  if (quickState.loading) {
+    try {
+      const response = await client.listConversations({ limit: "6" });
+      quickState.conversations = response.conversations;
+      quickState.selected ??= quickState.conversations[0]?.id ?? null;
+      quickState.loading = false;
+      quickState.error = "";
+      renderQuickSend();
+    } catch (error) {
+      quickState.loading = false;
+      quickState.error = messageOf(error);
+      renderQuickSend();
+    }
+  }
+}
+
+function quickSendMarkup(): string {
+  const selected = quickState.conversations.find((conversation) => conversation.id === quickState.selected);
+  const recent = quickState.conversations.length
+    ? quickState.conversations.map((conversation) => `
+      <button class="quick-conversation ${conversation.id === quickState.selected ? "selected" : ""}" type="button" data-conversation-id="${escape(conversation.id)}">
+        <span class="quick-source">${escape(sourceInitials(conversation.source.provider))}</span>
+        <span class="quick-conversation-copy"><strong>${escape(conversation.title)}</strong><small>${conversation.messageCount} messages · ${relativeDate(conversation.updatedAt)}</small></span>
+        ${icon("arrow", 15)}
+      </button>`).join("")
+    : `<div class="quick-empty"><strong>No conversations yet</strong><span>Import one to create your first Claude handoff.</span></div>`;
+
+  return `<div class="quick-card">
+    <div class="quick-intro">
+      <div class="quick-eyebrow"><span></span> quick handoff</div>
+      <h1>Send the useful part.</h1>
+      <p>Move one conversation into Claude and keep the context you need.</p>
+    </div>
+    <div class="quick-steps" aria-label="Handoff progress"><span class="active"><b>1</b> Choose</span><i></i><span><b>2</b> Send</span></div>
+    ${quickState.error ? `<div class="quick-error" role="alert">${icon("alert", 15)}<span>${escape(quickState.error)}</span><button type="button" class="quick-link" data-action="retry">Try again</button></div>` : ""}
+    <section class="quick-section">
+      <div class="quick-section-head"><div><h2>Recent conversations</h2><p>Pick one to bring into your private space.</p></div></div>
+      <div class="quick-conversations">${quickState.loading ? `<div class="quick-loading" aria-label="Loading conversations"><span></span><span></span><span></span></div>` : recent}</div>
+      <button class="quick-import-link" type="button" data-action="import">${icon("inbox", 15)} Import conversation</button>
+    </section>
+    ${selected ? quickReadyMarkup(selected) : `<section class="quick-empty-ready"><span class="quick-empty-icon">${icon("message", 18)}</span><strong>Choose a conversation to continue</strong><p>Your handoff stays private until you create it.</p></section>`}
+    <details class="quick-auth-details">
+      <summary>Connection settings</summary>
+      <form id="quick-api-key-form" class="quick-api-key-form">
+        <label for="quick-api-key">${BRAND.apiKeyLabel}</label>
+        <div><input id="quick-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="${BRAND.apiKeyPlaceholder}" value="${escape(getApiKey())}" /><button type="submit" class="button secondary">Save</button></div>
+        <small>Use sign-in above when managed authentication is enabled.</small>
+      </form>
+    </details>
+  </div>`;
+}
+
+function quickReadyMarkup(conversation: ConversationSummary): string {
+  const summary = conversation.summary?.trim() || `A portable handoff from ${conversation.source.provider}.`;
+  return `<section class="quick-ready">
+    <div class="quick-ready-label">Ready to send</div>
+    <h2>${escape(conversation.title)}</h2>
+    <p>${escape(summary)}</p>
+    <div class="quick-meta"><span>${icon("file", 12)} ${conversation.messageCount} messages</span><span>${escape(conversation.source.provider)}</span><span>Private handoff</span></div>
+    <button class="quick-disclosure" type="button" aria-expanded="${quickState.detailsOpen}" data-action="details"><span>What will be sent</span>${icon("chevron", 15)}</button>
+    ${quickState.detailsOpen ? `<div class="quick-details"><p>The conversation will be packaged as an expiring link for <strong>Claude · My space</strong>. Source-specific workspace metadata is redacted.</p><ul><li>Conversation title and messages</li><li>A four-hour expiry</li><li>Two uses maximum</li></ul></div>` : ""}
+    <div class="quick-destination"><span class="quick-destination-mark">C</span><span><small>Destination</small><strong>Claude · My space</strong></span><span class="quick-ready-status"><i></i> Ready</span></div>
+    <button class="quick-send-button" type="button" data-action="send" ${quickState.sending ? "disabled" : ""}>${quickState.sending ? `<span class="quick-spinner"></span> Creating private handoff…` : `${icon("send", 15)} Create handoff for Claude`}</button>
+    <p class="quick-note">${icon("shield", 12)} You’ll get a private link to open in Claude.</p>
+  </section>`;
+}
+
+function bindQuickSendEvents(): void {
+  panel.querySelectorAll<HTMLButtonElement>("[data-conversation-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      quickState.selected = button.dataset.conversationId ?? null;
+      quickState.sent = null;
+      renderQuickSend();
+    });
+  });
+  panel.querySelector<HTMLButtonElement>('[data-action="import"]')?.addEventListener("click", () => {
+    quickState.importOpen = true;
+    renderQuickSend();
+  });
+  panel.querySelector<HTMLButtonElement>('[data-action="details"]')?.addEventListener("click", () => {
+    quickState.detailsOpen = !quickState.detailsOpen;
+    renderQuickSend();
+  });
+  panel.querySelector<HTMLButtonElement>('[data-action="send"]')?.addEventListener("click", () => void sendQuickHandoff());
+  panel.querySelector<HTMLButtonElement>('[data-action="retry"]')?.addEventListener("click", () => {
+    quickState.loading = true;
+    quickState.error = "";
+    renderQuickSend();
+  });
+  panel.querySelector<HTMLFormElement>("#quick-api-key-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = panel.querySelector<HTMLInputElement>("#quick-api-key");
+    setApiKey(input?.value.trim() ?? "");
+    quickState.loading = true;
+    quickState.error = "";
+    notify(`${BRAND.apiKeyLabel} saved for this browser session.`);
+    void renderQuickSend();
+  });
+}
+
+async function sendQuickHandoff(): Promise<void> {
+  const conversation = quickState.conversations.find((candidate) => candidate.id === quickState.selected);
+  if (!conversation) return;
+  quickState.sending = true;
+  renderQuickSend();
+  try {
+    const handoff = await client.createHandoff(conversation.id, {
+      ttlMinutes: 240,
+      maxUses: 2,
+      audience: "Claude · My space",
+      note: "Prepared from the LNKZ quick handoff.",
+      redact: true,
+    });
+    quickState.sent = { title: conversation.title, shareUrl: handoff.shareUrl, expiresAt: handoff.expiresAt, maxUses: handoff.maxUses };
+    quickState.sending = false;
+    renderQuickSend();
+  } catch (error) {
+    quickState.sending = false;
+    quickState.error = messageOf(error);
+    renderQuickSend();
+  }
+}
+
+function renderQuickSuccess(): void {
+  const sent = quickState.sent;
+  if (!sent) return;
+  panel.innerHTML = `<div class="quick-success-card">
+    <div class="quick-success-mark">${icon("check", 21)}</div>
+    <div class="quick-eyebrow"><span></span> ready for Claude</div>
+    <h1>Your handoff is ready.</h1>
+    <p><strong>${escape(sent.title)}</strong> is packaged for Claude · My space.</p>
+    <div class="quick-share-box"><span>${icon("link", 14)} Private handoff link</span><button type="button" class="button secondary" data-action="copy">${icon("copy", 14)} Copy link</button><code>${escape(sent.shareUrl)}</code></div>
+    <div class="quick-success-meta"><span>Expires ${escape(date(sent.expiresAt))}</span><span>${sent.maxUses} uses</span><span>Source metadata redacted</span></div>
+    <div class="quick-success-actions"><a class="quick-send-button" href="${escape(sent.shareUrl)}" target="_blank" rel="noreferrer">${icon("arrow", 15)} Open handoff</a><button class="button secondary" type="button" data-action="again">Send another</button></div>
+    <p class="quick-note">${icon("shield", 12)} Open this link from Claude when you’re ready to continue.</p>
+  </div>`;
+  panel.querySelector<HTMLButtonElement>('[data-action="copy"]')?.addEventListener("click", () => void copy(sent.shareUrl));
+  panel.querySelector<HTMLButtonElement>('[data-action="again"]')?.addEventListener("click", () => {
+    quickState.sent = null;
+    quickState.detailsOpen = false;
+    renderQuickSend();
+  });
+}
+
+function renderQuickImport(): void {
+  panel.innerHTML = `<div class="quick-import-card">
+    <button class="quick-back" type="button" data-action="back">${icon("arrow-left", 15)} Back to recent conversations</button>
+    <div class="quick-eyebrow"><span></span> bring a conversation in</div>
+    <h1>Start with a conversation.</h1>
+    <p>Paste a copied chat or export. LNKZ keeps the source intact and prepares it for a private Claude handoff.</p>
+    <form id="quick-import-form">
+      <div class="quick-import-fields"><label for="quick-import-format">Source<select id="quick-import-format"><option value="auto">Detect automatically</option><option value="chatgpt">ChatGPT export</option><option value="claude">Claude export</option><option value="gemini">Gemini export</option><option value="markdown">Markdown</option><option value="text">Plain text</option></select></label><label for="quick-import-title">Name <span>optional</span><input id="quick-import-title" type="text" placeholder="A useful name" /></label></div>
+      <label for="quick-import-data">Conversation<textarea id="quick-import-data" rows="9" placeholder="Paste the conversation here"></textarea></label>
+      <div id="quick-import-error" class="quick-error" hidden role="alert"></div>
+      <div class="quick-form-actions"><button class="button secondary" type="button" data-action="back">Cancel</button><button class="quick-send-button" type="submit" ${quickState.importing ? "disabled" : ""}>${quickState.importing ? `<span class="quick-spinner"></span> Importing…` : `${icon("inbox", 15)} Import conversation`}</button></div>
+    </form>
+  </div>`;
+  panel.querySelectorAll<HTMLButtonElement>('[data-action="back"]').forEach((button) => button.addEventListener("click", () => {
+    quickState.importOpen = false;
+    renderQuickSend();
+  }));
+  panel.querySelector<HTMLFormElement>("#quick-import-form")?.addEventListener("submit", (event) => void importQuickConversation(event));
+}
+
+async function importQuickConversation(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  const data = panel.querySelector<HTMLTextAreaElement>("#quick-import-data")?.value.trim() ?? "";
+  const format = panel.querySelector<HTMLSelectElement>("#quick-import-format")?.value ?? "auto";
+  const title = panel.querySelector<HTMLInputElement>("#quick-import-title")?.value.trim() ?? "";
+  const errorBox = panel.querySelector<HTMLElement>("#quick-import-error");
+  if (!data) {
+    if (errorBox) {
+      errorBox.hidden = false;
+      errorBox.textContent = "Paste a conversation first.";
+    }
+    return;
+  }
+  quickState.importing = true;
+  renderQuickImport();
+  try {
+    const result = await client.importPayload({ payload: data, format, ...(title ? { tags: [title] } : {}) });
+    const imported = result.conversations ?? [];
+    if (!imported.length) throw new Error("No conversation was found in that import.");
+    quickState.conversations = [...imported, ...quickState.conversations.filter((conversation) => !imported.some((candidate) => candidate.id === conversation.id))];
+    quickState.selected = imported[0].id;
+    quickState.importOpen = false;
+    quickState.importing = false;
+    quickState.error = "";
+    notify("Conversation imported and ready to send.");
+    renderQuickSend();
+  } catch (error) {
+    quickState.importing = false;
+    renderQuickImport();
+    const nextError = panel.querySelector<HTMLElement>("#quick-import-error");
+    if (nextError) {
+      nextError.hidden = false;
+      nextError.textContent = messageOf(error);
+    }
+  }
+}
+
+function sourceInitials(provider: string): string {
+  const value = provider.trim();
+  return value.length <= 3 ? value.toUpperCase() : value.slice(0, 2).toUpperCase();
+}
+
+function relativeDate(value: string): string {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "recently";
+  const minutes = Math.max(1, Math.floor((Date.now() - timestamp) / 60_000));
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function renderImport(): void {
