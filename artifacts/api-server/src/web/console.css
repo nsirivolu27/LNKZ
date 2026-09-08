@@ -132,6 +132,13 @@ body:has(.quick-app) { min-width: 320px; background: #f4efe6; color: #203a3a; }
 .quick-success-meta { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 13px; color: var(--quick-soft); font-size: 9px; }
 .quick-success-actions { justify-content: center; }
 .quick-success-actions .quick-send-button { width: auto; margin: 0; }
+.quick-destination-help { margin: 8px 2px 0; color: var(--quick-soft); font-size: 10px; line-height: 1.45; }
+.quick-destination-unavailable { border-color: #e5c5b6; background: #fff8f4; }
+.quick-destination-loading { opacity: .72; }
+.quick-ready-status.unavailable { color: #a75d43; }
+.quick-ready-status.unavailable i { background: #c97858; }
+.quick-ready-status.connected { color: #5b8869; }
+.quick-ready-status.connected i { background: #5b8869; }
 .quick-spinner { width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.35); border-top-color: white; border-radius: 50%; animation: quick-spin .8s linear infinite; }
 @keyframes quick-spin { to { transform: rotate(360deg); } }
 @media (max-width: 640px) {

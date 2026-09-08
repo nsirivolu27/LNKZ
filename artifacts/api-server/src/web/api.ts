@@ -97,6 +97,15 @@ export interface ConnectorStatus {
   detail: string;
 }
 
+export type ClaudeDestinationState = "connected" | "reconnect" | "unavailable" | "permission-denied";
+
+export interface ClaudeDestinationStatus {
+  provider: "claude";
+  label: string;
+  state: ClaudeDestinationState;
+  detail: string;
+}
+
 export interface Stats {
   conversations: number;
   messages: number;
@@ -170,6 +179,7 @@ export const client = {
     ),
   listHandoffs: () => api<{ handoffs: HandoffSummary[] }>("/api/handoffs"),
   revokeHandoff: (id: string) => api<void>(`/api/handoffs/${id}`, { method: "DELETE" }),
+  claudeDestination: () => api<{ destination: ClaudeDestinationStatus }>("/api/destinations/claude"),
   buildPacket: (body: Record<string, unknown>) =>
     api<{ packet: Packet }>("/api/context/packet", { method: "POST", body: JSON.stringify(body) }),
   connectors: () => api<{ connectors: ConnectorStatus[] }>("/api/connectors"),

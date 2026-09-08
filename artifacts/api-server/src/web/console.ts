@@ -1,5 +1,5 @@
 import { BRAND } from "./branding";
-import { client, getApiKey, setApiKey, type ConversationSummary, type HandoffSummary, type MembershipAuditEvent, type WorkspaceMembership } from "./api";
+import { client, getApiKey, setApiKey, type ClaudeDestinationStatus, type ConversationSummary, type HandoffSummary, type MembershipAuditEvent, type WorkspaceMembership } from "./api";
 import { icon } from "./icons";
 import "./styles.css";
 import "./console.css";
@@ -17,6 +17,8 @@ const state: { tab: TabId; selected: string | null } = { tab: "import", selected
 type QuickState = {
   conversations: ConversationSummary[];
   selected: string | null;
+  destination: ClaudeDestinationStatus | null;
+  destinationLoading: boolean;
   loading: boolean;
   importing: boolean;
   sending: boolean;
@@ -28,6 +30,8 @@ type QuickState = {
 const quickState: QuickState = {
   conversations: [],
   selected: null,
+  destination: null,
+  destinationLoading: true,
   loading: true,
   importing: false,
   sending: false,
@@ -66,18 +70,26 @@ async function renderQuickSend(): Promise<void> {
   panel.innerHTML = quickSendMarkup();
   bindQuickSendEvents();
   if (quickState.loading) {
-    try {
-      const response = await client.listConversations({ limit: "6" });
-      quickState.conversations = response.conversations;
-      quickState.selected ??= quickState.conversations[0]?.id ?? null;
+    const [conversationsResult, destinationResult] = await Promise.allSettled([
+      client.listConversations({ limit: "6" }),
+      client.claudeDestination(),
+    ]);
+    if (conversationsResult.status === "rejected") {
+      quickState.destinationLoading = false;
       quickState.loading = false;
-      quickState.error = "";
+      quickState.error = messageOf(conversationsResult.reason);
       renderQuickSend();
-    } catch (error) {
-      quickState.loading = false;
-      quickState.error = messageOf(error);
-      renderQuickSend();
+      return;
     }
+    quickState.conversations = conversationsResult.value.conversations;
+    quickState.destination = destinationResult.status === "fulfilled" ? destinationResult.value.destination : null;
+    quickState.destinationLoading = false;
+    quickState.selected ??= quickState.conversations[0]?.id ?? null;
+    quickState.loading = false;
+    quickState.error = destinationResult.status === "rejected"
+      ? "Claude connection could not be checked. The private link fallback is still available."
+      : "";
+    renderQuickSend();
   }
 }
 
@@ -126,10 +138,28 @@ function quickReadyMarkup(conversation: ConversationSummary): string {
     <div class="quick-meta"><span>${icon("file", 12)} ${conversation.messageCount} messages</span><span>${escape(conversation.source.provider)}</span><span>Private handoff</span></div>
     <button class="quick-disclosure" type="button" aria-expanded="${quickState.detailsOpen}" data-action="details"><span>What will be sent</span>${icon("chevron", 15)}</button>
     ${quickState.detailsOpen ? `<div class="quick-details"><p>The conversation will be packaged as an expiring link for <strong>Claude · My space</strong>. Source-specific workspace metadata is redacted.</p><ul><li>Conversation title and messages</li><li>A four-hour expiry</li><li>Two uses maximum</li></ul></div>` : ""}
-    <div class="quick-destination"><span class="quick-destination-mark">C</span><span><small>Destination</small><strong>Claude · My space</strong></span><span class="quick-ready-status"><i></i> Ready</span></div>
-    <button class="quick-send-button" type="button" data-action="send" ${quickState.sending ? "disabled" : ""}>${quickState.sending ? `<span class="quick-spinner"></span> Creating private handoff…` : `${icon("send", 15)} Create handoff for Claude`}</button>
-    <p class="quick-note">${icon("shield", 12)} You’ll get a private link to open in Claude.</p>
+    ${quickDestinationMarkup()}
+    <button class="quick-send-button" type="button" data-action="send" ${quickState.sending ? "disabled" : ""}>${quickState.sending ? `<span class="quick-spinner"></span> Creating private handoff…` : `${icon("link", 15)} Create private link`}</button>
+    <p class="quick-note">${icon("shield", 12)} The conversation is not sent to Claude automatically.</p>
   </section>`;
+}
+
+function quickDestinationMarkup(): string {
+  const destination = quickState.destination;
+  if (quickState.destinationLoading) {
+    return `<div class="quick-destination quick-destination-loading"><span class="quick-destination-mark">C</span><span><small>Destination</small><strong>Checking Claude connection…</strong></span></div>`;
+  }
+  if (!destination) {
+    return `<div class="quick-destination quick-destination-unavailable"><span class="quick-destination-mark">C</span><span><small>Destination</small><strong>Claude · My space</strong></span><span class="quick-ready-status unavailable"><i></i> Unavailable</span></div><p class="quick-destination-help">The connection could not be checked. The private handoff link is still available as a safe fallback.</p>`;
+  }
+  const stateLabel: Record<ClaudeDestinationStatus["state"], string> = {
+    connected: "Connected",
+    reconnect: "Reconnect required",
+    unavailable: "Unavailable",
+    "permission-denied": "Permission denied",
+  };
+  const statusClass = destination.state === "connected" ? "connected" : "unavailable";
+  return `<div class="quick-destination quick-destination-${statusClass}"><span class="quick-destination-mark">C</span><span><small>Destination</small><strong>${escape(destination.label)}</strong></span><span class="quick-ready-status ${statusClass}"><i></i> ${stateLabel[destination.state]}</span></div><p class="quick-destination-help">${escape(destination.detail)}</p>`;
 }
 
 function bindQuickSendEvents(): void {
@@ -151,6 +181,7 @@ function bindQuickSendEvents(): void {
   panel.querySelector<HTMLButtonElement>('[data-action="send"]')?.addEventListener("click", () => void sendQuickHandoff());
   panel.querySelector<HTMLButtonElement>('[data-action="retry"]')?.addEventListener("click", () => {
     quickState.loading = true;
+    quickState.destinationLoading = true;
     quickState.error = "";
     renderQuickSend();
   });
@@ -159,6 +190,7 @@ function bindQuickSendEvents(): void {
     const input = panel.querySelector<HTMLInputElement>("#quick-api-key");
     setApiKey(input?.value.trim() ?? "");
     quickState.loading = true;
+    quickState.destinationLoading = true;
     quickState.error = "";
     notify(`${BRAND.apiKeyLabel} saved for this browser session.`);
     void renderQuickSend();
@@ -168,6 +200,7 @@ function bindQuickSendEvents(): void {
 async function sendQuickHandoff(): Promise<void> {
   const conversation = quickState.conversations.find((candidate) => candidate.id === quickState.selected);
   if (!conversation) return;
+  if (!window.confirm("Claude direct delivery is unavailable here. Create a private, redacted handoff link to open in Claude yourself?")) return;
   quickState.sending = true;
   renderQuickSend();
   try {
@@ -193,13 +226,13 @@ function renderQuickSuccess(): void {
   if (!sent) return;
   panel.innerHTML = `<div class="quick-success-card">
     <div class="quick-success-mark">${icon("check", 21)}</div>
-    <div class="quick-eyebrow"><span></span> ready for Claude</div>
-    <h1>Your handoff is ready.</h1>
-    <p><strong>${escape(sent.title)}</strong> is packaged for Claude · My space.</p>
+    <div class="quick-eyebrow"><span></span> private link ready</div>
+    <h1>Your handoff link is ready.</h1>
+    <p><strong>${escape(sent.title)}</strong> is packaged for you to open in Claude · My space.</p>
     <div class="quick-share-box"><span>${icon("link", 14)} Private handoff link</span><button type="button" class="button secondary" data-action="copy">${icon("copy", 14)} Copy link</button><code>${escape(sent.shareUrl)}</code></div>
     <div class="quick-success-meta"><span>Expires ${escape(date(sent.expiresAt))}</span><span>${sent.maxUses} uses</span><span>Source metadata redacted</span></div>
     <div class="quick-success-actions"><a class="quick-send-button" href="${escape(sent.shareUrl)}" target="_blank" rel="noreferrer">${icon("arrow", 15)} Open handoff</a><button class="button secondary" type="button" data-action="again">Send another</button></div>
-    <p class="quick-note">${icon("shield", 12)} Open this link from Claude when you’re ready to continue.</p>
+    <p class="quick-note">${icon("shield", 12)} Direct Claude delivery is unavailable, so nothing was sent automatically.</p>
   </div>`;
   panel.querySelector<HTMLButtonElement>('[data-action="copy"]')?.addEventListener("click", () => void copy(sent.shareUrl));
   panel.querySelector<HTMLButtonElement>('[data-action="again"]')?.addEventListener("click", () => {

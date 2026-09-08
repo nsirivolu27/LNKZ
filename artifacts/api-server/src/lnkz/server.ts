@@ -43,6 +43,7 @@ import type { PostgresRateLimiter } from "./store/rate-limit.js";
 import type { Conversation } from "./types.js";
 import { ZodError } from "zod";
 import { ManagedAuthService } from "./managed-auth.js";
+import { claudeDestinationStatus } from "./connectors/claude-space.js";
 
 const config = loadConfig();
 const { host, port, publicBaseUrl } = config;
@@ -142,6 +143,10 @@ app.get("/health", (_request, response) => {
 
 app.get("/api/connectors", requireApiKey, (_request, response) => {
   response.json({ connectors: connectorStatuses(core) });
+});
+
+app.get("/api/destinations/claude", requireApiKey, (_request, response) => {
+  response.json({ destination: claudeDestinationStatus() });
 });
 
 app.get("/api/stats", requireApiKey, async (_request, response) => {
