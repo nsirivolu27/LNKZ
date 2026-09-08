@@ -57,6 +57,14 @@ interface SourceEvent {
   detail_json: string | null;
 }
 
+interface SourceIdentity {
+  instance_id: string;
+  public_key_pem: string;
+  private_key_pem: string;
+  display_name: string;
+  created_at: string;
+}
+
 export async function migrateSqliteToPostgres(args = parseArgs(process.argv.slice(2))): Promise<void> {
   const source = new DatabaseSync(resolve(args.sqlite));
   try {
@@ -64,12 +72,19 @@ export async function migrateSqliteToPostgres(args = parseArgs(process.argv.slic
     const messages = source.prepare("select * from messages order by conversation_id, seq").all() as unknown as SourceMessage[];
     const handoffs = source.prepare("select * from handoffs order by created_at, id").all() as unknown as SourceHandoff[];
     const events = source.prepare("select * from events order by at, id").all() as unknown as SourceEvent[];
+    const identity = source.prepare(
+      "select name from sqlite_master where type = 'table' and name = 'instance_identity'",
+    ).get()
+      ? source.prepare("select instance_id, public_key_pem, private_key_pem, display_name, created_at from instance_identity where singleton = 1")
+        .get() as unknown as SourceIdentity | undefined
+      : undefined;
     validateSource(conversations, messages);
     const counts = {
       conversations: conversations.length,
       messages: messages.length,
       handoffs: handoffs.length,
       events: events.length,
+      hasInstanceIdentity: Boolean(identity),
     };
     console.log(JSON.stringify({ dryRun: args.dryRun, source: resolve(args.sqlite), counts }, null, 2));
     if (args.dryRun) return;
@@ -81,6 +96,7 @@ export async function migrateSqliteToPostgres(args = parseArgs(process.argv.slic
       await client.query("begin");
       await client.query("select set_config('app.workspace_id', $1, true)", [DEFAULT_WORKSPACE_ID]);
       await assertTargetReady(client);
+      if (identity) await writeInstanceIdentity(client, identity);
       for (const conversation of conversations) {
         const conversationMessages = messages.filter((message) => message.conversation_id === conversation.id);
         await writeConversation(client, conversation, conversationMessages);
@@ -114,9 +130,19 @@ async function assertTargetReady(client: PoolClient): Promise<void> {
   const result = await client.query<{ version: number }>(
     "select version from schema_migrations order by version desc limit 1",
   );
-  if (Number(result.rows[0]?.version ?? 0) < 1) {
-    throw new Error("Postgres migrations must run before the SQLite import.");
+  if (Number(result.rows[0]?.version ?? 0) < 3) {
+    throw new Error("Postgres migrations through instance identity must run before the SQLite import.");
   }
+}
+
+async function writeInstanceIdentity(client: PoolClient, row: SourceIdentity): Promise<void> {
+  await client.query(
+    `insert into instance_identity
+      (singleton, instance_id, public_key_pem, private_key_pem, display_name, created_at)
+     values (true, $1, $2, $3, $4, $5)
+     on conflict (singleton) do nothing`,
+    [row.instance_id, row.public_key_pem, row.private_key_pem, row.display_name, row.created_at],
+  );
 }
 
 async function writeConversation(client: PoolClient, row: SourceConversation, messages: SourceMessage[]): Promise<void> {

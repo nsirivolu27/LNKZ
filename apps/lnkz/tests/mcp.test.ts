@@ -26,6 +26,6 @@ test("local MCP preserves tool names and lnkz resource URIs", async (t) => {
   const resources = await client.listResources();
   assert.deepEqual(
     resources.resources.map((resource) => resource.uri).sort(),
-    ["lnkz://connectors", "lnkz://conversations", "lnkz://graph", "lnkz://stats"],
+    ["lnkz://connectors", "lnkz://conversations", "lnkz://graph", "lnkz://stats", "lnkz://transfers"],
   );
 });

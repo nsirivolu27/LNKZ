@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { ensureStoredInstanceIdentity, signHandoffPacket } from "../identity.js";
 import { analyzeConversation } from "../intel/analyze.js";
 import { noRedaction, redactConversation } from "../intel/redact.js";
 import { conversationToMarkdown } from "./markdown.js";
@@ -17,13 +18,14 @@ import type {
   HandoffOptions,
   HandoffPacket,
   HandoffSummary,
+  InstanceIdentityRecord,
   ListOptions,
   MessageInput,
   MessageRole,
   StoreStats,
 } from "../types.js";
 
-export const REQUIRED_POSTGRES_SCHEMA_VERSION = 2;
+export const REQUIRED_POSTGRES_SCHEMA_VERSION = 3;
 export { DEFAULT_WORKSPACE_ID };
 
 /**
@@ -50,6 +52,43 @@ export class PostgresConversationStore implements ConversationStore {
       ssl: postgresSsl(),
     });
     this.ready = this.assertSchema();
+  }
+
+  async getInstanceIdentity(): Promise<InstanceIdentityRecord | null> {
+    return this.transaction(async (client) => {
+      const result = await client.query<IdentityRow>(
+        `select instance_id, public_key_pem, private_key_pem, display_name
+           from instance_identity
+          where singleton = true`,
+      );
+      const row = result.rows[0];
+      return row
+        ? {
+            instanceId: row.instance_id,
+            publicKeyPem: row.public_key_pem,
+            privateKeyPem: row.private_key_pem,
+            displayName: row.display_name,
+          }
+        : null;
+    });
+  }
+
+  async ensureInstanceIdentity(displayName?: string): Promise<InstanceIdentityRecord> {
+    return ensureStoredInstanceIdentity(
+      () => this.getInstanceIdentity(),
+      async (identity) => {
+        await this.transaction(async (client) => {
+          await client.query(
+            `insert into instance_identity
+              (singleton, instance_id, public_key_pem, private_key_pem, display_name)
+             values (true, $1, $2, $3, $4)
+             on conflict (singleton) do nothing`,
+            [identity.instanceId, identity.publicKeyPem, identity.privateKeyPem, identity.displayName],
+          );
+        });
+      },
+      displayName,
+    );
   }
 
   async save(input: ConversationInput): Promise<Conversation> {
@@ -207,6 +246,7 @@ export class PostgresConversationStore implements ConversationStore {
   }
 
   async redeemHandoff(token: string): Promise<HandoffPacket | null> {
+    const identity = await this.ensureInstanceIdentity();
     return this.transaction(async (client) => {
       await client.query("select set_config('app.handoff_token_hash', $1, true)", [hashToken(token)]);
       const result = await client.query<HandoffRow>(
@@ -239,7 +279,7 @@ export class PostgresConversationStore implements ConversationStore {
       });
       const redacted = row.redact ? redactConversation(conversation, { aggressive: true }) : null;
       const payload = redacted?.conversation ?? conversation;
-      return {
+      return signHandoffPacket({
         format: "lnkz.conversation.v1",
         conversation: payload,
         transcriptMarkdown: conversationToMarkdown(payload),
@@ -252,7 +292,7 @@ export class PostgresConversationStore implements ConversationStore {
           audience: row.audience ?? undefined,
         },
         exportedAt: new Date().toISOString(),
-      };
+      }, identity);
     });
   }
 
@@ -532,6 +572,13 @@ interface ConversationRow extends QueryResultRow {
   updated_at: string;
 }
 
+interface IdentityRow extends QueryResultRow {
+  instance_id: string;
+  public_key_pem: string;
+  private_key_pem: string;
+  display_name: string;
+}
+
 interface MessageRow extends QueryResultRow {
   conversation_id: string;
   seq: number;
@@ -647,6 +694,13 @@ function normalizeLineage(lineage: ConversationLineage | undefined, selfId?: str
     rootId: lineage.rootId?.trim() || parentId || selfId,
     handoffId: lineage.handoffId?.trim() || undefined,
     continuedBy: lineage.continuedBy?.trim() || undefined,
+    originInstance: lineage.originInstance?.trim() || undefined,
+    originInstanceName: lineage.originInstanceName?.trim() || undefined,
+    originVerification: lineage.originVerification === "verified" || lineage.originVerification === "unverified"
+      ? lineage.originVerification
+      : undefined,
+    originConversationId: lineage.originConversationId?.trim() || undefined,
+    importedAt: validDate(lineage.importedAt),
   };
 }
 

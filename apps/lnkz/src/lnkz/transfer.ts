@@ -1,7 +1,12 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import {
+  IDENTITY_WELL_KNOWN_PATH,
+  parseIdentityDocument,
+  verifyHandoffPacket,
+} from "./identity.js";
 import { importConversations } from "./import/index.js";
-import type { ConversationInput } from "./types.js";
+import type { ConversationInput, HandoffPacket, TransferVerification } from "./types.js";
 
 /**
  * Pulling a conversation off another LNKZ instance.
@@ -24,7 +29,14 @@ const FETCH_TIMEOUT_MS = 15_000;
 
 export interface TransferResult {
   conversation: ConversationInput;
-  origin: { instance: string; url: string; handoffId?: string; conversationId?: string };
+  origin: {
+    instance: string;
+    url: string;
+    displayName: string;
+    verification: TransferVerification;
+    handoffId?: string;
+    conversationId?: string;
+  };
   warnings: string[];
 }
 
@@ -58,7 +70,13 @@ export async function fetchTransfer(rawUrl: string, environment: NodeJS.ProcessE
     throw new TransferError("The link did not return a LNKZ packet. Ask for the JSON link, not the Markdown one.");
   }
 
-  const packet = payload as { format?: string; conversation?: { id?: string }; handoff?: { id?: string } };
+  const packet = payload as {
+    format?: string;
+    conversation?: { id?: string };
+    handoff?: { id?: string };
+    signingInstanceId?: string;
+    signature?: string;
+  };
   if (packet.format !== "lnkz.conversation.v1") {
     throw new TransferError(`Expected a lnkz.conversation.v1 packet, got ${packet.format ?? "an unrecognized shape"}.`);
   }
@@ -70,10 +88,17 @@ export async function fetchTransfer(rawUrl: string, environment: NodeJS.ProcessE
   const origin = {
     instance: url.origin,
     url: url.toString(),
+    displayName: url.origin,
+    verification: "unverified" as TransferVerification,
     handoffId: packet.handoff?.id,
     conversationId: packet.conversation?.id,
   };
+  const verification = await verifyOriginIdentity(url, packet, environment);
+  origin.displayName = verification.displayName;
+  origin.verification = verification.verification;
 
+  const warnings = [...result.warnings];
+  if (verification.warning) warnings.push(verification.warning);
   return {
     conversation: {
       ...conversation,
@@ -81,14 +106,59 @@ export async function fetchTransfer(rawUrl: string, environment: NodeJS.ProcessE
       lineage: {
         ...conversation.lineage,
         originInstance: origin.instance,
+        originInstanceName: origin.displayName,
+        originVerification: origin.verification,
         originConversationId: origin.conversationId,
         handoffId: origin.handoffId,
         importedAt: new Date().toISOString(),
       },
     },
     origin,
-    warnings: result.warnings,
+    warnings,
   };
+}
+
+async function verifyOriginIdentity(
+  originUrl: URL,
+  packet: {
+    signingInstanceId?: string;
+    signature?: string;
+  },
+  environment: NodeJS.ProcessEnv,
+): Promise<{
+  displayName: string;
+  verification: TransferVerification;
+  warning?: string;
+}> {
+  const fallback = originUrl.origin;
+  try {
+    const identityUrl = await safeUrl(new URL(IDENTITY_WELL_KNOWN_PATH, originUrl.origin).toString(), environment);
+    const response = await fetchWithTimeout(identityUrl);
+    if (!response.ok) throw new TransferError("identity document unavailable");
+
+    const identity = parseIdentityDocument(JSON.parse(await readCapped(response)));
+    if (!identity) throw new TransferError("identity document invalid");
+
+    if (
+      packet.signingInstanceId === identity.instanceId
+      && typeof packet.signature === "string"
+      && verifyHandoffPacket(packet as HandoffPacket, identity.publicKey)
+    ) {
+      return { displayName: identity.displayName, verification: "verified" };
+    }
+
+    return {
+      displayName: identity.displayName,
+      verification: "unverified",
+      warning: "The origin identity was found, but the packet signature could not be verified.",
+    };
+  } catch {
+    return {
+      displayName: fallback,
+      verification: "unverified",
+      warning: "The origin identity could not be verified; the conversation was imported as unverified.",
+    };
+  }
 }
 
 /**

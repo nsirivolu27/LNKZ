@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { ensureStoredInstanceIdentity, signHandoffPacket } from "../identity.js";
 import { analyzeConversation } from "../intel/analyze.js";
 import { noRedaction, redactConversation } from "../intel/redact.js";
 import { conversationToMarkdown } from "./markdown.js";
@@ -18,15 +19,25 @@ import type {
   HandoffOptions,
   HandoffPacket,
   HandoffSummary,
+  InstanceIdentityRecord,
   ListOptions,
   MessageInput,
   MessageRole,
   StoreStats,
 } from "../types.js";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
+CREATE TABLE instance_identity (
+  singleton       INTEGER PRIMARY KEY CHECK (singleton = 1),
+  instance_id     TEXT NOT NULL UNIQUE,
+  public_key_pem  TEXT NOT NULL,
+  private_key_pem TEXT NOT NULL,
+  display_name    TEXT NOT NULL,
+  created_at      TEXT NOT NULL
+);
+
 CREATE TABLE conversations (
   id                TEXT PRIMARY KEY,
   title             TEXT NOT NULL,
@@ -114,6 +125,19 @@ export class SqliteConversationStore implements ConversationStore {
     if (current >= SCHEMA_VERSION) return;
     if (current === 0) {
       this.db.exec(SCHEMA);
+      this.db.exec("PRAGMA user_version = 1");
+    }
+    if (current < 2) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS instance_identity (
+          singleton       INTEGER PRIMARY KEY CHECK (singleton = 1),
+          instance_id     TEXT NOT NULL UNIQUE,
+          public_key_pem  TEXT NOT NULL,
+          private_key_pem TEXT NOT NULL,
+          display_name    TEXT NOT NULL,
+          created_at      TEXT NOT NULL
+        )
+      `);
       this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     }
   }
@@ -171,6 +195,41 @@ export class SqliteConversationStore implements ConversationStore {
       .prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY seq ASC")
       .all(id) as unknown as MessageRow[];
     return rowToConversation(row, messages);
+  }
+
+  async getInstanceIdentity(): Promise<InstanceIdentityRecord | null> {
+    const row = this.db
+      .prepare("SELECT instance_id, public_key_pem, private_key_pem, display_name FROM instance_identity WHERE singleton = 1")
+      .get() as unknown as IdentityRow | undefined;
+    return row
+      ? {
+          instanceId: row.instance_id,
+          publicKeyPem: row.public_key_pem,
+          privateKeyPem: row.private_key_pem,
+          displayName: row.display_name,
+        }
+      : null;
+  }
+
+  async ensureInstanceIdentity(displayName?: string): Promise<InstanceIdentityRecord> {
+    return ensureStoredInstanceIdentity(
+      () => this.getInstanceIdentity(),
+      async (identity) => {
+        this.db.prepare(`
+          INSERT INTO instance_identity
+            (singleton, instance_id, public_key_pem, private_key_pem, display_name, created_at)
+          VALUES (1, ?, ?, ?, ?, ?)
+          ON CONFLICT(singleton) DO NOTHING
+        `).run(
+          identity.instanceId,
+          identity.publicKeyPem,
+          identity.privateKeyPem,
+          identity.displayName,
+          new Date().toISOString(),
+        );
+      },
+      displayName,
+    );
   }
 
   async list(options: ListOptions = {}): Promise<ConversationSummary[]> {
@@ -319,7 +378,7 @@ export class SqliteConversationStore implements ConversationStore {
     const redacted = row.redact ? redactConversation(conversation, { aggressive: true }) : null;
     const payload = redacted?.conversation ?? conversation;
 
-    return {
+    return signHandoffPacket({
       format: "lnkz.conversation.v1",
       conversation: payload,
       transcriptMarkdown: conversationToMarkdown(payload),
@@ -332,7 +391,7 @@ export class SqliteConversationStore implements ConversationStore {
         audience: row.audience ?? undefined,
       },
       exportedAt: new Date().toISOString(),
-    };
+    }, await this.ensureInstanceIdentity());
   }
 
   async revokeHandoff(handoffId: string): Promise<boolean> {
@@ -528,6 +587,13 @@ interface ConversationRow {
   updated_at: string;
 }
 
+interface IdentityRow {
+  instance_id: string;
+  public_key_pem: string;
+  private_key_pem: string;
+  display_name: string;
+}
+
 interface MessageRow {
   conversation_id: string;
   seq: number;
@@ -633,6 +699,13 @@ function normalizeLineage(lineage: ConversationLineage | undefined, selfId?: str
     rootId: lineage.rootId?.trim() || parentId || selfId,
     handoffId: lineage.handoffId?.trim() || undefined,
     continuedBy: lineage.continuedBy?.trim() || undefined,
+    originInstance: lineage.originInstance?.trim() || undefined,
+    originInstanceName: lineage.originInstanceName?.trim() || undefined,
+    originVerification: lineage.originVerification === "verified" || lineage.originVerification === "unverified"
+      ? lineage.originVerification
+      : undefined,
+    originConversationId: lineage.originConversationId?.trim() || undefined,
+    importedAt: validDate(lineage.importedAt),
   };
 }
 

@@ -22,6 +22,23 @@ export interface ConversationSource {
   url?: string;
 }
 
+export type TransferVerification = "verified" | "unverified";
+
+export interface InstanceIdentityRecord {
+  instanceId: string;
+  publicKeyPem: string;
+  privateKeyPem: string;
+  displayName: string;
+}
+
+export interface InstanceIdentityDocument {
+  version: 1;
+  instanceId: string;
+  algorithm: "Ed25519";
+  publicKey: string;
+  displayName: string;
+}
+
 /**
  * Where this conversation came from when it was continued somewhere else.
  * A chat started in ChatGPT, handed off, and continued in Claude keeps the
@@ -39,6 +56,8 @@ export interface ConversationLineage {
    * makes a handoff worth anything stops at the machine boundary.
    */
   originInstance?: string;
+  originInstanceName?: string;
+  originVerification?: TransferVerification;
   originConversationId?: string;
   importedAt?: string;
 }
@@ -149,6 +168,8 @@ export interface HandoffPacket {
   redaction: RedactionReport;
   handoff: { id: string; usesRemaining: number | null; expiresAt: string; audience?: string };
   exportedAt: string;
+  signingInstanceId: string;
+  signature: string;
 }
 
 /** Deterministic, model-free reading of what a conversation actually settled. */

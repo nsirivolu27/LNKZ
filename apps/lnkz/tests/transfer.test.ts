@@ -2,14 +2,29 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { toIdentityDocument } from "../src/lnkz/identity.js";
 import { fetchTransfer, isPublicAddress, safeUrl, TransferError } from "../src/lnkz/transfer.js";
 import { SqliteConversationStore } from "../src/lnkz/store/index.js";
 
 const LOCAL = { LNKZ_TRANSFER_ALLOW_PRIVATE: "true" } as NodeJS.ProcessEnv;
 
-/** Serves one body on any path, so a test can act as the far instance. */
-async function serve(body: string, status = 200): Promise<{ url: string; close: () => Promise<void> }> {
-  const server: Server = createServer((_request, response) => {
+/** Serves a packet and, optionally, the far instance's public identity. */
+async function serve(
+  body: string,
+  status = 200,
+  identityBody?: string,
+): Promise<{ url: string; close: () => Promise<void> }> {
+  const server: Server = createServer((request, response) => {
+    if (request.url?.startsWith("/.well-known/lnkz.json")) {
+      if (!identityBody) {
+        response.writeHead(404, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "not found" }));
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(identityBody);
+      return;
+    }
     response.writeHead(status, { "content-type": "application/json" });
     response.end(body);
   });
@@ -22,9 +37,10 @@ async function serve(body: string, status = 200): Promise<{ url: string; close: 
 }
 
 /** A genuine packet, produced the way the sending instance produces one. */
-async function realPacket(): Promise<string> {
+async function realPacket(displayName = "LNKZ instance"): Promise<{ packet: string; identity: string }> {
   const store = new SqliteConversationStore(":memory:");
   try {
+    await store.ensureInstanceIdentity(displayName);
     const conversation = await store.save({
       title: "Which store for the relay",
       summary: "Settled on SQLite for single-node installs.",
@@ -39,32 +55,43 @@ async function realPacket(): Promise<string> {
     const handoff = await store.createHandoff({ conversationId: conversation.id, ttlMinutes: 60, maxUses: 3 });
     const packet = await store.redeemHandoff(handoff.token);
     assert.ok(packet, "the fixture handoff should redeem");
-    return JSON.stringify(packet);
+    const identity = await store.getInstanceIdentity();
+    assert.ok(identity, "the sending instance should persist its identity");
+    return {
+      packet: JSON.stringify(packet),
+      identity: JSON.stringify(toIdentityDocument(identity)),
+    };
   } finally {
     store.close();
   }
 }
 
 test("a share link from another instance becomes a local conversation", async () => {
-  const origin = await serve(await realPacket());
+  const source = await realPacket();
+  const origin = await serve(source.packet, 200, source.identity);
   try {
     const transfer = await fetchTransfer(origin.url, LOCAL);
 
     assert.equal(transfer.conversation.title, "Which store for the relay");
     assert.equal(transfer.conversation.messages.length, 2);
     assert.equal(transfer.conversation.source.provider, "chatgpt");
+    assert.equal(transfer.origin.verification, "verified");
+    assert.equal(transfer.origin.displayName, "LNKZ instance");
   } finally {
     await origin.close();
   }
 });
 
 test("a transferred conversation records where it came from", async () => {
-  const origin = await serve(await realPacket());
+  const source = await realPacket();
+  const origin = await serve(source.packet, 200, source.identity);
   try {
     const transfer = await fetchTransfer(origin.url, LOCAL);
     const lineage = transfer.conversation.lineage ?? {};
 
     assert.equal(lineage.originInstance, new URL(origin.url).origin);
+    assert.equal(lineage.originInstanceName, "LNKZ instance");
+    assert.equal(lineage.originVerification, "verified");
     assert.ok(lineage.originConversationId, "the origin's id is kept so the chain stays walkable");
     assert.ok(lineage.handoffId, "the handoff that carried it is recorded");
     assert.ok(lineage.importedAt, "and when it arrived");
@@ -73,8 +100,71 @@ test("a transferred conversation records where it came from", async () => {
     // imported the same conversation would otherwise collide on it.
     assert.equal(transfer.conversation.id, undefined);
     assert.notEqual(lineage.originConversationId, transfer.conversation.id);
+
+    const recipient = new SqliteConversationStore(":memory:");
+    try {
+      const saved = await recipient.save(transfer.conversation);
+      assert.equal(saved.lineage?.originInstanceName, "LNKZ instance");
+      assert.equal(saved.lineage?.originVerification, "verified");
+    } finally {
+      recipient.close();
+    }
   } finally {
     await origin.close();
+  }
+});
+
+test("a tampered packet is imported but marked unverified", async () => {
+  const source = await realPacket();
+  const tampered = JSON.parse(source.packet) as { conversation: { title: string } };
+  tampered.conversation.title = "A title changed in transit";
+  const origin = await serve(JSON.stringify(tampered), 200, source.identity);
+  try {
+    const transfer = await fetchTransfer(origin.url, LOCAL);
+    assert.equal(transfer.conversation.title, "A title changed in transit");
+    assert.equal(transfer.origin.verification, "unverified");
+    assert.equal(transfer.conversation.lineage?.originVerification, "unverified");
+    assert.match(transfer.warnings.join(" "), /signature could not be verified/);
+  } finally {
+    await origin.close();
+  }
+});
+
+test("a packet remains importable as unverified when identity discovery is unavailable", async () => {
+  const source = await realPacket();
+  const origin = await serve(source.packet);
+  try {
+    const transfer = await fetchTransfer(origin.url, LOCAL);
+    assert.equal(transfer.origin.verification, "unverified");
+    assert.equal(transfer.origin.displayName, new URL(origin.url).origin);
+    assert.equal(transfer.conversation.lineage?.originInstanceName, new URL(origin.url).origin);
+    assert.match(transfer.warnings.join(" "), /imported as unverified/);
+  } finally {
+    await origin.close();
+  }
+});
+
+test("two LNKZ instances verify transfers in both directions", async () => {
+  const first = await realPacket("First relay");
+  const second = await realPacket("Second relay");
+  const firstServer = await serve(first.packet, 200, first.identity);
+  const secondServer = await serve(second.packet, 200, second.identity);
+  try {
+    const firstToSecond = await fetchTransfer(firstServer.url, LOCAL);
+    const secondToFirst = await fetchTransfer(secondServer.url, LOCAL);
+
+    assert.equal(firstToSecond.origin.verification, "verified");
+    assert.equal(firstToSecond.origin.displayName, "First relay");
+    assert.equal(firstToSecond.conversation.lineage?.originInstanceName, "First relay");
+    assert.equal(firstToSecond.conversation.lineage?.originVerification, "verified");
+
+    assert.equal(secondToFirst.origin.verification, "verified");
+    assert.equal(secondToFirst.origin.displayName, "Second relay");
+    assert.equal(secondToFirst.conversation.lineage?.originInstanceName, "Second relay");
+    assert.equal(secondToFirst.conversation.lineage?.originVerification, "verified");
+  } finally {
+    await firstServer.close();
+    await secondServer.close();
   }
 });
 

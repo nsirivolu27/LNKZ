@@ -13,6 +13,7 @@ import {
 import { loadConfig } from "./config.js";
 import { connectorStatuses } from "./connectors/index.js";
 import { importConversations } from "./import/index.js";
+import { IDENTITY_WELL_KNOWN_PATH } from "./identity.js";
 import { fetchTransfer, TransferError } from "./transfer.js";
 import { analyzeConversation } from "./intel/analyze.js";
 import { detectConflicts, detectDuplicates } from "./intel/conflict.js";
@@ -50,7 +51,9 @@ const allowedHosts = withLoopback(config.allowedHosts, port);
 
 const app = createMcpExpressApp({ host, allowedHosts: allowedHosts.length ? allowedHosts : undefined });
 app.set("trust proxy", config.trustProxy);
-const { store, core, connectors, sharedRateLimiter } = createRuntime();
+const { store, core, connectors, sharedRateLimiter, identity } = createRuntime(undefined, {
+  instanceName: config.instanceName,
+});
 const authenticate = createApiKeyMiddleware(
   config.auth.principals,
   config.auth.apiKeyRequired,
@@ -462,6 +465,16 @@ app.use((error: unknown, request: express.Request, response: express.Response, n
     error: error instanceof Error ? error.message : "unknown error",
   });
   response.status(500).json({ error: "Internal server error." });
+});
+
+app.get(IDENTITY_WELL_KNOWN_PATH, async (_request, response) => {
+  try {
+    response.setHeader("cache-control", "public, max-age=300");
+    response.setHeader("x-robots-tag", "noindex");
+    response.json(await identity);
+  } catch {
+    response.status(503).json({ error: "Instance identity is unavailable." });
+  }
 });
 
 const httpServer = app.listen(port, host, (error?: Error) => {

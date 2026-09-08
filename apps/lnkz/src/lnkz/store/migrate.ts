@@ -12,6 +12,10 @@ const migrations = [
     version: 2,
     file: "002_identity_context.sql",
   },
+  {
+    version: 3,
+    file: "003_instance_identity.sql",
+  },
 ] as const;
 
 export async function runPostgresMigrations(databaseUrl = process.env.DATABASE_URL): Promise<number> {
@@ -58,7 +62,7 @@ async function grantApplicationRole(client: import("pg").PoolClient, role: strin
   }
   const quotedRole = `"${role}"`;
   await client.query(`grant usage on schema public to ${quotedRole}`);
-  await client.query(`grant select, insert, update, delete on conversations, messages, handoffs, events, rate_limit_buckets to ${quotedRole}`);
+      await client.query(`grant select, insert, update, delete on conversations, messages, handoffs, events, rate_limit_buckets, instance_identity to ${quotedRole}`);
   await client.query(`grant select on schema_migrations to ${quotedRole}`);
 }
 

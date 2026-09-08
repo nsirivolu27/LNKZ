@@ -555,6 +555,28 @@ export function createLnkzMcpServer(
   );
 
   server.registerResource(
+    "transfers",
+    "lnkz://transfers",
+    { title: "LNKZ transfers", description: "Imported conversations with origin instance names and verification status.", mimeType: "application/json" },
+    async () => {
+      const conversations = await store.list({ limit: 200 });
+      return jsonResource("lnkz://transfers", {
+        transfers: conversations
+          .filter((conversation) => Boolean(conversation.lineage?.originInstance))
+          .map((conversation) => ({
+            conversationId: conversation.id,
+            title: conversation.title,
+            originInstance: conversation.lineage?.originInstance,
+            originInstanceName: conversation.lineage?.originInstanceName
+              ?? conversation.lineage?.originInstance,
+            verification: conversation.lineage?.originVerification ?? "unverified",
+            importedAt: conversation.lineage?.importedAt,
+          })),
+      });
+    },
+  );
+
+  server.registerResource(
     "conversation",
     new ResourceTemplate("lnkz://conversation/{id}", { list: undefined }),
     { title: "LNKZ conversation", description: "One conversation as a portable Markdown transcript.", mimeType: "text/markdown" },

@@ -18,6 +18,7 @@ export interface AppConfig {
   host: string;
   port: number;
   publicBaseUrl: string;
+  instanceName: string;
   allowedHosts: string[];
   allowedOrigins: string[];
   maxBody: string;
@@ -72,6 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     host,
     port,
     publicBaseUrl,
+    instanceName: displayName(env.LNKZ_INSTANCE_NAME),
     allowedHosts: splitList(env.ALLOWED_HOSTS),
     allowedOrigins: splitList(env.ALLOWED_ORIGINS),
     maxBody: env.LNKZ_MAX_BODY?.trim() || "24mb",
@@ -94,6 +96,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       principals,
     },
   };
+}
+
+function displayName(value: string | undefined): string {
+  const normalized = value?.trim() || "LNKZ instance";
+  if (normalized.length > 120) throw new Error("LNKZ_INSTANCE_NAME must be 120 characters or fewer.");
+  return normalized;
 }
 
 export function splitList(value: string | undefined): string[] {

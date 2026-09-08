@@ -8,6 +8,7 @@ import type {
   HandoffOptions,
   HandoffPacket,
   HandoffSummary,
+  InstanceIdentityRecord,
   ListOptions,
   MessageInput,
   StoreStats,
@@ -29,6 +30,8 @@ export interface ConversationStore {
   redeemHandoff(token: string): Promise<HandoffPacket | null>;
   revokeHandoff(handoffId: string): Promise<boolean>;
   listHandoffs(conversationId?: string): Promise<HandoffSummary[]>;
+  getInstanceIdentity(): Promise<InstanceIdentityRecord | null>;
+  ensureInstanceIdentity(displayName?: string): Promise<InstanceIdentityRecord>;
   recordEvent(event: Omit<AuditEvent, "id" | "at"> & { at?: string }): Promise<void>;
   listEvents(limit: number): Promise<AuditEvent[]>;
   stats(): Promise<StoreStats>;

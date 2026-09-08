@@ -94,6 +94,9 @@ export function buildConversationGraph(
         updatedAt: conversation.updatedAt,
         messageCount: conversation.messages.length,
         approxTokens: analysis.approxTokens,
+        originInstance: conversation.lineage?.originInstance,
+        originInstanceName: conversation.lineage?.originInstanceName ?? conversation.lineage?.originInstance,
+        originVerification: conversation.lineage?.originVerification,
       },
     });
 

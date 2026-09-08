@@ -23,6 +23,7 @@ Set all of these for a public deployment:
 ```bash
 LNKZ_API_KEY=...
 LNKZ_PUBLIC_BASE_URL=https://lnkz.example.com
+LNKZ_INSTANCE_NAME=Personal relay
 ALLOWED_HOSTS=lnkz.example.com
 ALLOWED_ORIGINS=https://lnkz.example.com
 LNKZ_MCP_API_KEY_REQUIRED=true
@@ -74,6 +75,7 @@ Postgres and `LNKZ_AUTH_MODE=multi-key`.
 | `LNKZ_MCP_PATH` | MCP HTTP path, default `/mcp` |
 | `LNKZ_MCP_API_KEY_REQUIRED` | Require a key for MCP requests |
 | `LNKZ_MCP_CONTEXT_SECRET` | Shared HMAC secret for trusted multi-node MCP context forwarding; minimum 32 bytes |
+| `LNKZ_INSTANCE_NAME` | Operator-facing display name published in the public instance identity document |
 | `DATABASE_URL` | Switch from SQLite to Postgres |
 | `LNKZ_DATABASE_APP_ROLE` | Runtime Postgres role granted by migrations |
 | `LNKZ_MCP_TARGETS` | Downstream MCP targets for publish preparation |
