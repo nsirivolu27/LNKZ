@@ -172,8 +172,16 @@ test("SQLite to Postgres migration does not replace an existing target identity"
   const sqlitePath = join(directory, "source.db");
   const sourceStore = new SqliteConversationStore(sqlitePath);
   let sourceIdentity;
+  const privateConversationContent = "source conversation content stays out of migration reports";
   try {
     sourceIdentity = await sourceStore.ensureInstanceIdentity("Migrated integration test");
+    await sourceStore.save({
+      id: "migration-report-private-conversation",
+      title: "Private migration conversation",
+      source: { provider: "test" },
+      participants: ["test"],
+      messages: [{ role: "user", content: privateConversationContent }],
+    });
   } finally {
     sourceStore.close();
   }
@@ -190,7 +198,28 @@ test("SQLite to Postgres migration does not replace an existing target identity"
     assert.notEqual(targetIdentity.instanceId, sourceIdentity.instanceId);
     const targetBeforeMigration = toIdentityDocument(targetIdentity);
 
-    await migrateSqliteToPostgres({ sqlite: sqlitePath, database: appUrl, dryRun: false });
+    const migrationOutput: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => migrationOutput.push(args.map(String).join(" "));
+    try {
+      await migrateSqliteToPostgres({ sqlite: sqlitePath, database: appUrl, dryRun: false });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const report = JSON.parse(migrationOutput.at(-1) ?? "{}") as {
+      instanceIdentity?: {
+        sourceIdentityImported?: boolean;
+        existingTargetIdentityPreserved?: boolean;
+      };
+    };
+    assert.deepEqual(report.instanceIdentity, {
+      sourceIdentityImported: false,
+      existingTargetIdentityPreserved: true,
+    });
+    const publicOutput = migrationOutput.join("\n");
+    assert.doesNotMatch(publicOutput, /PRIVATE KEY/);
+    assert.doesNotMatch(publicOutput, new RegExp(privateConversationContent));
 
     const reopenedTarget = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
     try {

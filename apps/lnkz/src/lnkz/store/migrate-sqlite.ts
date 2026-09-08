@@ -65,6 +65,11 @@ interface SourceIdentity {
   created_at: string;
 }
 
+interface InstanceIdentityMigrationReport {
+  sourceIdentityImported: boolean;
+  existingTargetIdentityPreserved: boolean;
+}
+
 export async function migrateSqliteToPostgres(args = parseArgs(process.argv.slice(2))): Promise<void> {
   const source = new DatabaseSync(resolve(args.sqlite));
   try {
@@ -96,7 +101,9 @@ export async function migrateSqliteToPostgres(args = parseArgs(process.argv.slic
       await client.query("begin");
       await client.query("select set_config('app.workspace_id', $1, true)", [DEFAULT_WORKSPACE_ID]);
       await assertTargetReady(client);
-      if (identity) await writeInstanceIdentity(client, identity);
+      const instanceIdentity = identity
+        ? await writeInstanceIdentity(client, identity)
+        : { sourceIdentityImported: false, existingTargetIdentityPreserved: false };
       for (const conversation of conversations) {
         const conversationMessages = messages.filter((message) => message.conversation_id === conversation.id);
         await writeConversation(client, conversation, conversationMessages);
@@ -104,7 +111,7 @@ export async function migrateSqliteToPostgres(args = parseArgs(process.argv.slic
       for (const handoff of handoffs) await writeHandoff(client, handoff);
       for (const event of events) await writeEvent(client, event);
       await client.query("commit");
-      console.log(JSON.stringify({ migrated: counts }, null, 2));
+      console.log(JSON.stringify({ migrated: counts, instanceIdentity }, null, 2));
     } catch (error) {
       await client.query("rollback").catch(() => undefined);
       throw error;
@@ -135,14 +142,18 @@ async function assertTargetReady(client: PoolClient): Promise<void> {
   }
 }
 
-async function writeInstanceIdentity(client: PoolClient, row: SourceIdentity): Promise<void> {
-  await client.query(
+async function writeInstanceIdentity(client: PoolClient, row: SourceIdentity): Promise<InstanceIdentityMigrationReport> {
+  const result = await client.query(
     `insert into instance_identity
       (singleton, instance_id, public_key_pem, private_key_pem, display_name, created_at)
      values (true, $1, $2, $3, $4, $5)
      on conflict (singleton) do nothing`,
     [row.instance_id, row.public_key_pem, row.private_key_pem, row.display_name, row.created_at],
   );
+  return {
+    sourceIdentityImported: result.rowCount === 1,
+    existingTargetIdentityPreserved: result.rowCount === 0,
+  };
 }
 
 async function writeConversation(client: PoolClient, row: SourceConversation, messages: SourceMessage[]): Promise<void> {
