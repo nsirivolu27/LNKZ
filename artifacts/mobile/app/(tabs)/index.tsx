@@ -138,32 +138,6 @@ export default function LibraryScreen() {
           </View>
         ) : null}
 
-        <View style={[styles.sourcesPanel, { borderColor: colors.border }]}>
-          <View style={styles.sourcesHeading}>
-            <SectionLabel>THE SOURCES</SectionLabel>
-            {connectorsQuery.error ? <SecondaryButton label="Retry" onPress={() => connectorsQuery.refetch()} /> : null}
-          </View>
-          {connectorsQuery.isLoading ? (
-            <View style={styles.sourceLoading}><ActivityIndicator color={colors.primary} /></View>
-          ) : connectorsQuery.error ? (
-            <ErrorNotice message={connectorsQuery.error instanceof Error ? connectorsQuery.error.message : 'Could not load source status.'} onRetry={() => connectorsQuery.refetch()} />
-          ) : connectorsQuery.data?.connectors.length ? (
-            <View style={styles.sourcesList}>
-              {connectorsQuery.data.connectors.map((connector) => (
-                <View key={connector.id} style={[styles.sourceRow, { borderColor: colors.input }]}>
-                  <View style={styles.sourceCopy}>
-                    <Text style={[styles.sourceLabel, { color: colors.foreground }]}>{connector.label}</Text>
-                    <Text numberOfLines={1} style={[styles.sourceDetail, { color: colors.mutedForeground }]}>{connector.detail}</Text>
-                  </View>
-                  <Chip label={connector.configured ? 'READY' : 'OFF'} selected={connector.configured} />
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={[styles.sourceEmpty, { color: colors.mutedForeground }]}>No connectors are configured on this relay yet.</Text>
-          )}
-        </View>
-
         {libraryQuery.isLoading ? (
           <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View>
         ) : error ? (
@@ -188,6 +162,32 @@ export default function LibraryScreen() {
           <FieldHandoffStat label="MESSAGES" value={statsQuery.isLoading ? '…' : (stats?.messages ?? messageCount).toLocaleString()} style={styles.statHalf} />
           <FieldHandoffStat label="HANDOFFS" value={statsQuery.isLoading ? '…' : String(stats?.activeHandoffs ?? 0)} style={styles.statHalf} />
           <FieldHandoffStat label="SOURCES" value={connectorsQuery.isLoading ? '…' : String(connectedSources)} style={styles.statHalf} />
+        </View>
+
+        <View style={[styles.sourcesPanel, { borderColor: colors.border }]}>
+          <View style={styles.sourcesHeading}>
+            <SectionLabel>CONNECTOR STATUS</SectionLabel>
+            {connectorsQuery.error ? <SecondaryButton label="Retry" onPress={() => connectorsQuery.refetch()} /> : null}
+          </View>
+          {connectorsQuery.isLoading ? (
+            <View style={styles.sourceLoading}><ActivityIndicator color={colors.primary} /></View>
+          ) : connectorsQuery.error ? (
+            <ErrorNotice message={connectorsQuery.error instanceof Error ? connectorsQuery.error.message : 'Could not load source status.'} onRetry={() => connectorsQuery.refetch()} />
+          ) : connectorsQuery.data?.connectors.length ? (
+            <View style={styles.sourcesList}>
+              {connectorsQuery.data.connectors.map((connector) => (
+                <View key={connector.id} style={[styles.sourceRow, { borderColor: colors.input }]}>
+                  <View style={styles.sourceCopy}>
+                    <Text style={[styles.sourceLabel, { color: colors.foreground }]}>{connector.label}</Text>
+                    <Text numberOfLines={1} style={[styles.sourceDetail, { color: colors.mutedForeground }]}>{connector.detail}</Text>
+                  </View>
+                  <Chip label={connector.configured ? 'READY' : 'OFF'} selected={connector.configured} />
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={[styles.sourceEmpty, { color: colors.mutedForeground }]}>No connectors are configured on this relay yet.</Text>
+          )}
         </View>
         <View style={[styles.footer, { backgroundColor: colors.foreground }]}>
           <Text style={[styles.footerText, { color: colors.background }]}>RELEASE NOTES / REUSE CONTEXT / PRESERVE LINKS / SHARE LESS CHAOS / MORE SIGNAL.</Text>
