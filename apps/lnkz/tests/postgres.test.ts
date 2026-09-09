@@ -302,6 +302,40 @@ test("Postgres application role has the runtime schema privileges", { skip: !ena
   }
 });
 
+test("Postgres application role can only read migration bookkeeping", { skip: !enabled }, async () => {
+  await runPostgresMigrations(migrationUrl);
+  const pool = new Pool({ connectionString: appUrl, ssl: postgresSsl(), max: 1 });
+  const objectName = "public.schema_migrations";
+  try {
+    const privileges = await pool.query<{ privilege: string; granted: boolean }>(
+      `
+        select
+          privilege,
+          has_table_privilege(current_user, $1, privilege) as granted
+        from unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE']::text[]) as required(privilege)
+        order by privilege
+      `,
+      [objectName],
+    );
+    const granted = new Map(privileges.rows.map((row) => [row.privilege, row.granted]));
+
+    assert.equal(
+      granted.get("SELECT"),
+      true,
+      `Postgres application role must have SELECT on ${objectName}`,
+    );
+    for (const privilege of ["INSERT", "UPDATE", "DELETE"]) {
+      assert.equal(
+        granted.get(privilege),
+        false,
+        `Postgres application role unexpectedly has ${privilege} on ${objectName}`,
+      );
+    }
+  } finally {
+    await pool.end();
+  }
+});
+
 test("Postgres workspace tables require forced RLS and an isolation policy", { skip: !enabled }, async () => {
   await runPostgresMigrations(migrationUrl);
   const pool = new Pool({ connectionString: appUrl, ssl: postgresSsl(), max: 1 });
