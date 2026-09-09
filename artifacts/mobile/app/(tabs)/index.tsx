@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -25,43 +25,51 @@ export default function LibraryScreen() {
   const router = useRouter();
   const { api } = useApp();
   const [query, setQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [provider, setProvider] = useState<(typeof PROVIDERS)[number]>('all');
   const [showFilters, setShowFilters] = useState(false);
 
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(query.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
   const libraryQuery = useQuery({
-    queryKey: ['conversations', query.trim(), provider],
+    queryKey: ['conversations', searchQuery, provider],
     enabled: Boolean(api),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!api) throw new ApiError('Connect to a relay first.', 0);
-      if (query.trim()) {
-        const result = await api.searchConversations(query.trim());
+      if (searchQuery) {
+        const result = await api.searchConversations(searchQuery, signal);
         return result.matches as ConversationSummary[];
       }
-      const result = await api.listConversations({ provider: provider === 'all' ? undefined : provider });
+      const result = await api.listConversations({ provider: provider === 'all' ? undefined : provider }, signal);
       return result.conversations;
     },
   });
   const statsQuery = useQuery({
     queryKey: ['stats'],
     enabled: Boolean(api),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!api) throw new ApiError('Connect to a relay first.', 0);
-      return api.stats();
+      return api.stats(signal);
     },
   });
   const connectorsQuery = useQuery({
     queryKey: ['connectors'],
     enabled: Boolean(api),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!api) throw new ApiError('Connect to a relay first.', 0);
-      return api.connectors();
+      return api.connectors(signal);
     },
   });
 
   const conversations = useMemo(() => libraryQuery.data ?? [], [libraryQuery.data]);
   const messageCount = conversations.reduce((total, item) => total + item.messageCount, 0);
   const stats = statsQuery.data?.stats;
+  const connectedSources = connectorsQuery.data?.connectors.filter((connector) => connector.configured).length ?? 0;
   const error = libraryQuery.error instanceof Error ? libraryQuery.error.message : null;
+  const refreshing = libraryQuery.isRefetching || statsQuery.isRefetching || connectorsQuery.isRefetching;
 
   return (
     <AppScreen scroll={false} style={styles.page}>
@@ -70,7 +78,19 @@ export default function LibraryScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        refreshControl={undefined}
+        refreshControl={(
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              void Promise.all([
+                libraryQuery.refetch(),
+                statsQuery.refetch(),
+                connectorsQuery.refetch(),
+              ]);
+            }}
+            tintColor={colors.primary}
+          />
+        )}
       >
         <FieldHandoffHeader
           onSend={() => router.push('/import')}
@@ -167,7 +187,7 @@ export default function LibraryScreen() {
           <FieldHandoffStat label="THREADS" value={statsQuery.isLoading ? '…' : String(stats?.conversations ?? conversations.length)} style={styles.statHalf} />
           <FieldHandoffStat label="MESSAGES" value={statsQuery.isLoading ? '…' : (stats?.messages ?? messageCount).toLocaleString()} style={styles.statHalf} />
           <FieldHandoffStat label="HANDOFFS" value={statsQuery.isLoading ? '…' : String(stats?.activeHandoffs ?? 0)} style={styles.statHalf} />
-          <FieldHandoffStat label="SOURCES" value={statsQuery.isLoading ? '…' : String(stats?.providers.length ?? 0)} style={styles.statHalf} />
+          <FieldHandoffStat label="SOURCES" value={connectorsQuery.isLoading ? '…' : String(connectedSources)} style={styles.statHalf} />
         </View>
         <View style={[styles.footer, { backgroundColor: colors.foreground }]}>
           <Text style={[styles.footerText, { color: colors.background }]}>RELEASE NOTES / REUSE CONTEXT / PRESERVE LINKS / SHARE LESS CHAOS / MORE SIGNAL.</Text>

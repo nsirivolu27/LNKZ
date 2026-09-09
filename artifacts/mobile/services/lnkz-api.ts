@@ -183,6 +183,25 @@ export class ApiError extends Error {
   }
 }
 
+function safeServerDetail(body: unknown): string | undefined {
+  if (typeof body !== 'object' || !body || !('error' in body) || typeof body.error !== 'string') return undefined;
+  const detail = redactSensitiveText(body.error).trim();
+  if (!detail || detail.length > 180 || /<[^>]+>|stack|trace|internal endpoint/i.test(detail)) return undefined;
+  return detail.replace(/\s+/g, ' ');
+}
+
+export function messageForApiFailure(status: number, body?: unknown): string {
+  const detail = safeServerDetail(body);
+  if (status === 400 || status === 422) return detail ?? 'Check the entered details and try again.';
+  if (status === 401) return 'Your API key was rejected. Update it in Settings.';
+  if (status === 403) return 'This API key does not have permission for that action.';
+  if (status === 404) return 'That relay item no longer exists.';
+  if (status === 409) return 'This changed on the relay. Refresh and try again.';
+  if (status === 429) return 'Too many requests. Wait a moment and try again.';
+  if (status >= 500) return 'The relay is temporarily unavailable. Try again shortly.';
+  return detail ?? 'The relay could not complete that request.';
+}
+
 export function normalizeBaseUrl(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return '';
@@ -218,8 +237,11 @@ export class LnkzApiClient {
     options: RequestInit = {},
   ): Promise<T> {
     if (!this.baseUrl) throw new ApiError('Enter a relay URL first.', 0);
+    if (!this.apiKey) throw new ApiError('Enter an API key first.', 0);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const abortFromCaller = () => controller.abort();
+    options.signal?.addEventListener('abort', abortFromCaller, { once: true });
     const headers = new Headers(options.headers);
     headers.set('accept', 'application/json');
     headers.set('authorization', `Bearer ${this.apiKey}`);
@@ -229,7 +251,7 @@ export class LnkzApiClient {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...options,
         headers,
-        signal: options.signal ?? controller.signal,
+        signal: controller.signal,
       });
       const text = await response.text();
       let body: unknown = undefined;
@@ -241,11 +263,7 @@ export class LnkzApiClient {
         }
       }
       if (!response.ok) {
-        const message =
-          typeof body === 'object' && body && 'error' in body && typeof body.error === 'string'
-            ? body.error
-            : `Request failed with status ${response.status}.`;
-        throw new ApiError(redactSensitiveText(message), response.status, response.status >= 500);
+        throw new ApiError(messageForApiFailure(response.status, body), response.status, response.status >= 500 || response.status === 429);
       }
       return body as T;
     } catch (error) {
@@ -254,42 +272,51 @@ export class LnkzApiClient {
         throw new ApiError('The relay took too long to respond.', 408, true);
       }
       throw new ApiError(
-        error instanceof Error ? redactSensitiveText(error.message) : 'Unable to reach the relay.',
+        'Unable to reach the relay. Check your connection and server URL.',
         0,
         true,
       );
     } finally {
       clearTimeout(timer);
+      options.signal?.removeEventListener('abort', abortFromCaller);
     }
   }
 
-  health(): Promise<HealthResponse> {
-    return this.request<HealthResponse>('/health');
+  health(signal?: AbortSignal): Promise<HealthResponse> {
+    return this.request<HealthResponse>('/health', { signal });
   }
 
-  stats() {
-    return this.request<{ stats: StoreStats }>('/api/stats');
+  async validateConnection(signal?: AbortSignal): Promise<HealthResponse> {
+    const health = await this.health(signal);
+    await this.stats(signal);
+    return health;
   }
 
-  connectors() {
-    return this.request<{ connectors: ConnectorStatus[] }>('/api/connectors');
+  stats(signal?: AbortSignal) {
+    return this.request<{ stats: StoreStats }>('/api/stats', { signal });
   }
 
-  listConversations(options: { provider?: string; tag?: string; participant?: string } = {}) {
+  connectors(signal?: AbortSignal) {
+    return this.request<{ connectors: ConnectorStatus[] }>('/api/connectors', { signal });
+  }
+
+  listConversations(options: { provider?: string; tag?: string; participant?: string } = {}, signal?: AbortSignal) {
     return this.request<{ conversations: ConversationSummary[] }>(
       `/api/conversations?${buildConversationQuery(options)}`,
+      { signal },
     );
   }
 
-  searchConversations(query: string) {
+  searchConversations(query: string, signal?: AbortSignal) {
     return this.request<{ matches: ConversationMatch[] }>('/api/conversations/search', {
       method: 'POST',
       body: JSON.stringify({ query, limit: 50 }),
+      signal,
     });
   }
 
-  getConversation(id: string) {
-    return this.request<ConversationResponse>(`/api/conversations/${encodeURIComponent(id)}`);
+  getConversation(id: string, signal?: AbortSignal) {
+    return this.request<ConversationResponse>(`/api/conversations/${encodeURIComponent(id)}`, { signal });
   }
 
   importPayload(payload: string, format: ImportFormat, dryRun: boolean) {
@@ -316,9 +343,9 @@ export class LnkzApiClient {
     });
   }
 
-  listHandoffs(conversationId?: string) {
+  listHandoffs(conversationId?: string, signal?: AbortSignal) {
     const query = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : '';
-    return this.request<{ handoffs: HandoffSummary[] }>(`/api/handoffs${query}`);
+    return this.request<{ handoffs: HandoffSummary[] }>(`/api/handoffs${query}`, { signal });
   }
 
   createHandoff(

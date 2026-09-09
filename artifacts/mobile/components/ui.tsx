@@ -19,6 +19,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { ConversationSummary, HandoffSummary } from '@/services/lnkz-api';
+import { getHandoffState } from '@/services/handoff-state';
 
 export function AppScreen({
   children,
@@ -151,9 +152,9 @@ export function FieldHandoffStat({ label, value, style }: { label: string; value
 export function FieldHandoffPreview({ onImport }: { onImport: () => void }) {
   const colors = useColors();
   const rows = [
-    { code: 'GPT', title: 'Edge cache invalidation for the relay API', meta: '38 messages · 12 min ago', featured: true },
-    { code: 'CL', title: 'Workspace onboarding notes', meta: '24 messages · Yesterday', featured: false },
-    { code: 'CU', title: 'MCP publish preparation', meta: '61 messages · 2 days ago', featured: false },
+    { code: '01', title: 'Import a conversation', meta: 'ChatGPT · Claude · Gemini · Markdown · text', featured: true },
+    { code: '02', title: 'Select useful context', meta: 'Choose the thread before building a bounded packet', featured: false },
+    { code: '03', title: 'Share a private handoff', meta: 'Expiry · usage limits · redaction · revocation', featured: false },
   ];
 
   return (
@@ -188,10 +189,10 @@ export function FieldHandoffPreview({ onImport }: { onImport: () => void }) {
         <Text style={[styles.fieldPreviewImportText, { color: colors.foreground }]}>IMPORT A CONVERSATION</Text>
       </Pressable>
       <View style={styles.fieldPreviewStats}>
-        <FieldHandoffStat label="RATING" value="4.9 ★" style={styles.fieldStatHalf} />
-        <FieldHandoffStat label="HANDOFFS" value="23.4K" style={styles.fieldStatHalf} />
-        <FieldHandoffStat label="VERSION" value="0.2" style={styles.fieldStatHalf} />
-        <FieldHandoffStat label="TTL" value="7 DAYS" style={styles.fieldStatHalf} />
+        <FieldHandoffStat label="AUTH" value="BEARER" style={styles.fieldStatHalf} />
+        <FieldHandoffStat label="STORAGE" value="SECURE" style={styles.fieldStatHalf} />
+        <FieldHandoffStat label="LINKS" value="EXPIRING" style={styles.fieldStatHalf} />
+        <FieldHandoffStat label="STATE" value="LIVE" style={styles.fieldStatHalf} />
       </View>
     </View>
   );
@@ -431,24 +432,27 @@ export function ConversationCard({
 export function HandoffCard({
   handoff,
   onRevoke,
+  revokeDisabled = false,
 }: {
   handoff: HandoffSummary;
   onRevoke: () => void;
+  revokeDisabled?: boolean;
 }) {
   const colors = useColors();
+  const state = getHandoffState(handoff);
   return (
     <View style={[styles.handoffCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={styles.cardTopline}>
-        <Chip label={handoff.active ? 'ACTIVE' : 'EXPIRED'} selected={handoff.active} />
-        <Text style={[styles.cardDate, { color: colors.mutedForeground }]}>{formatDate(handoff.expiresAt)}</Text>
+        <Chip label={state.toUpperCase()} selected={state === 'active'} />
+        <Text style={[styles.cardDate, { color: colors.mutedForeground }]}>expires {formatDate(handoff.expiresAt)}</Text>
       </View>
       <Text style={[styles.cardTitle, { color: colors.foreground }]}>{handoff.audience || 'Private handoff'}</Text>
       {handoff.note ? <Text style={[styles.cardSummary, { color: colors.mutedForeground }]}>{handoff.note}</Text> : null}
       <View style={styles.cardFooter}>
         <Text style={[styles.cardMeta, { color: colors.mutedForeground }]}>
-          {handoff.uses}/{handoff.maxUses} uses · {handoff.redact ? 'redacted' : 'full context'}
+          created {formatDate(handoff.createdAt)} · {handoff.uses}/{handoff.maxUses} uses · {handoff.redact ? 'redacted' : 'full context'}
         </Text>
-        {handoff.active ? <IconButton icon="slash" label="Revoke handoff" onPress={onRevoke} destructive /> : null}
+        {state === 'active' ? <IconButton icon="slash" label="Revoke handoff" onPress={onRevoke} disabled={revokeDisabled} destructive /> : null}
       </View>
     </View>
   );

@@ -1,12 +1,31 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildConversationQuery, LnkzApiClient, normalizeBaseUrl } from '@/services/lnkz-api';
+import { CredentialStorage, readCredentials, removeCredentials, writeCredentials } from '@/services/credential-store';
+import { updateConversationSelection } from '@/services/context-selection';
+import { getHandoffState } from '@/services/handoff-state';
+import { buildConversationQuery, LnkzApiClient, messageForApiFailure, normalizeBaseUrl } from '@/services/lnkz-api';
 import { redactSensitiveText } from '@/services/redaction';
 
 const originalFetch = globalThis.fetch;
 
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   globalThis.fetch = (async (input, init) => handler(String(input), init)) as typeof fetch;
+}
+
+class MemoryStorage implements CredentialStorage {
+  readonly values = new Map<string, string>();
+
+  async getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+
+  async setItem(key: string, value: string) {
+    this.values.set(key, value);
+  }
+
+  async deleteItem(key: string) {
+    this.values.delete(key);
+  }
 }
 
 test.afterEach(() => {
@@ -40,6 +59,30 @@ test('library requests include the bearer header and typed conversation response
   });
   const response = await new LnkzApiClient({ serverUrl: 'https://relay.example.com', apiKey: 'test-key' }).listConversations({ provider: 'claude' });
   assert.equal(response.conversations[0]?.title, 'Decision log');
+});
+
+test('conversation search sends a bounded authenticated request', async () => {
+  mockFetch((url, init) => {
+    assert.equal(url, 'https://relay.example.com/api/conversations/search');
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer key');
+    assert.deepEqual(JSON.parse(String(init?.body)), { query: 'launch notes', limit: 50 });
+    return Response.json({ matches: [] });
+  });
+  const client = new LnkzApiClient({ serverUrl: 'relay.example.com', apiKey: 'key' });
+  assert.deepEqual((await client.searchConversations('launch notes')).matches, []);
+});
+
+test('connection validation reaches an authenticated endpoint before credentials are accepted', async () => {
+  const paths: string[] = [];
+  mockFetch((url, init) => {
+    paths.push(new URL(url).pathname);
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer key');
+    if (url.endsWith('/health')) return Response.json({ ok: true, service: 'llmm', version: '0.2.0' });
+    return Response.json({ stats: { conversations: 0, messages: 0, providers: [], activeHandoffs: 0, events: 0 } });
+  });
+  const client = new LnkzApiClient({ serverUrl: 'relay.example.com', apiKey: 'key' });
+  assert.equal((await client.validateConnection()).ok, true);
+  assert.deepEqual(paths, ['/health', '/api/stats']);
 });
 
 test('import preview posts dry-run intent and preserves warnings for the UI', async () => {
@@ -138,6 +181,65 @@ test('stats and connector status stay behind the authenticated API client', asyn
   assert.equal((await client.stats()).stats.activeHandoffs, 1);
   assert.equal((await client.connectors()).connectors[0]?.configured, true);
   assert.equal(call, 2);
+});
+
+test('credential values restore normalized data and are fully removed on disconnect', async () => {
+  const storage = new MemoryStorage();
+  await writeCredentials(storage, { serverUrl: 'relay.example.com///', apiKey: '  private-key  ' });
+  assert.deepEqual(await readCredentials(storage), {
+    serverUrl: 'https://relay.example.com',
+    apiKey: 'private-key',
+  });
+  await removeCredentials(storage);
+  assert.equal(await readCredentials(storage), null);
+  assert.equal(storage.values.size, 0);
+});
+
+test('context selection is stable, deduplicated, and removable', () => {
+  const first = updateConversationSelection([], 'conversation-1', true);
+  assert.deepEqual(first, ['conversation-1']);
+  assert.equal(updateConversationSelection(first, 'conversation-1', true), first);
+  assert.deepEqual(updateConversationSelection(first, 'conversation-1', false), []);
+});
+
+test('handoff state distinguishes active, expired, exhausted, and revoked links', () => {
+  const base = {
+    id: 'handoff-1',
+    conversationId: 'conversation-1',
+    createdAt: '2026-09-08T00:00:00.000Z',
+    expiresAt: '2026-09-08T02:00:00.000Z',
+    maxUses: 2,
+    uses: 0,
+    redact: true,
+    active: true,
+  };
+  const now = new Date('2026-09-08T01:00:00.000Z').getTime();
+  assert.equal(getHandoffState(base, now), 'active');
+  assert.equal(getHandoffState({ ...base, expiresAt: '2026-09-08T00:30:00.000Z', active: false }, now), 'expired');
+  assert.equal(getHandoffState({ ...base, uses: 2, active: false }, now), 'exhausted');
+  assert.equal(getHandoffState({ ...base, revokedAt: '2026-09-08T00:15:00.000Z', active: false }, now), 'revoked');
+});
+
+test('authorization, rate-limit, server, and malformed responses become short safe messages', async () => {
+  assert.equal(messageForApiFailure(401), 'Your API key was rejected. Update it in Settings.');
+  assert.equal(messageForApiFailure(429), 'Too many requests. Wait a moment and try again.');
+  assert.equal(messageForApiFailure(503), 'The relay is temporarily unavailable. Try again shortly.');
+  assert.equal(
+    messageForApiFailure(400, { error: '<html><body>proxy failure</body></html>' }),
+    'Check the entered details and try again.',
+  );
+});
+
+test('offline failures never expose the fetch implementation error', async () => {
+  mockFetch(() => {
+    throw new Error('getaddrinfo ENOTFOUND internal-host');
+  });
+  const client = new LnkzApiClient({ serverUrl: 'relay.example.com', apiKey: 'key' });
+  await assert.rejects(
+    () => client.stats(),
+    (error: unknown) => error instanceof Error
+      && error.message === 'Unable to reach the relay. Check your connection and server URL.',
+  );
 });
 
 test('redacts token-like content before error or warning text reaches the UI', () => {

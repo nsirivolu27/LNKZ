@@ -52,9 +52,16 @@ export default function ImportScreen() {
       if (mode === 'url') return api.importUrl(url.trim(), false);
       return api.importPayload(payload, format, false);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
-      Alert.alert('Imported', 'The conversation is now in your library.', [{ text: 'Open library', onPress: () => router.replace('/(tabs)') }]);
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
+      const conversation = 'conversation' in result
+        ? result.conversation
+        : 'conversations' in result
+          ? result.conversations[0]
+          : undefined;
+      Alert.alert('Imported', 'The conversation is now in your library.');
+      router.replace(conversation ? `/conversations/${conversation.id}` : '/(tabs)');
     },
     onError: (nextError) => setError(nextError instanceof Error ? nextError.message : 'Import failed.'),
   });
@@ -105,8 +112,8 @@ export default function ImportScreen() {
       )}
       {error ? <ErrorNotice message={error} /> : null}
       <View style={styles.actions}>
-        <PrimaryButton label="Preview import" icon="eye" onPress={() => previewMutation.mutate()} loading={previewMutation.isPending} />
-        {preview ? <SecondaryButton label="Save to library" icon="download" onPress={() => importMutation.mutate()} disabled={importMutation.isPending} /> : null}
+        <PrimaryButton label="Preview import" icon="eye" onPress={() => previewMutation.mutate()} loading={previewMutation.isPending || importMutation.isPending} />
+        {preview ? <SecondaryButton label="Save to library" icon="download" onPress={() => importMutation.mutate()} disabled={previewMutation.isPending || importMutation.isPending} /> : null}
       </View>
       {preview ? (
         <View style={[styles.preview, { backgroundColor: colors.card, borderColor: colors.border }]}>

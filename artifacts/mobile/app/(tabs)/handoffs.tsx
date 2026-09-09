@@ -15,9 +15,9 @@ export default function HandoffsScreen() {
   const handoffsQuery = useQuery({
     queryKey: ['handoffs'],
     enabled: Boolean(api),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!api) throw new ApiError('Connect to a relay first.', 0);
-      return (await api.listHandoffs()).handoffs;
+      return (await api.listHandoffs(undefined, signal)).handoffs;
     },
   });
   const revokeMutation = useMutation({
@@ -25,7 +25,10 @@ export default function HandoffsScreen() {
       if (!api) throw new ApiError('Connect to a relay first.', 0);
       await api.revokeHandoff(id);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['handoffs'] }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['handoffs'] });
+      await queryClient.invalidateQueries({ queryKey: ['stats'] });
+    },
   });
 
   function revoke(id: string) {
@@ -55,16 +58,32 @@ export default function HandoffsScreen() {
       ) : handoffs.length === 0 ? (
         <EmptyState icon="link" title="No handoffs yet" description="Create a private, expiring link from any conversation detail screen." />
       ) : (
+        <>
+        {revokeMutation.error ? (
+          <ErrorNotice
+            message={revokeMutation.error instanceof Error ? revokeMutation.error.message : 'Could not revoke this handoff.'}
+            onRetry={() => {
+              if (revokeMutation.variables) revokeMutation.mutate(revokeMutation.variables);
+            }}
+          />
+        ) : null}
         <FlatList
           data={handoffs}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <HandoffCard handoff={item} onRevoke={() => revoke(item.id)} />}
+          renderItem={({ item }) => (
+            <HandoffCard
+              handoff={item}
+              onRevoke={() => revoke(item.id)}
+              revokeDisabled={revokeMutation.isPending}
+            />
+          )}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           refreshing={handoffsQuery.isRefetching}
           onRefresh={() => handoffsQuery.refetch()}
         />
+        </>
       )}
     </AppScreen>
   );

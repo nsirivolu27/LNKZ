@@ -1,9 +1,13 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { normalizeBaseUrl } from '@/services/lnkz-api';
+import {
+  CredentialStorage,
+  CredentialValues,
+  readCredentials,
+  removeCredentials,
+  writeCredentials,
+} from '@/services/credential-store';
 
-const SERVER_URL_KEY = 'lnkz.serverUrl';
-const API_KEY_KEY = 'lnkz.apiKey';
 const THEME_KEY = 'lnkz.themePreference';
 const webMemoryStore = new Map<string, string>();
 
@@ -12,6 +16,12 @@ export interface StoredCredentials {
   serverUrl: string;
   apiKey: string;
 }
+
+const credentialStorage: CredentialStorage = {
+  getItem,
+  setItem,
+  deleteItem,
+};
 
 async function getItem(key: string): Promise<string | null> {
   if (Platform.OS === 'web') return webMemoryStore.get(key) ?? null;
@@ -35,30 +45,15 @@ async function deleteItem(key: string): Promise<void> {
 }
 
 export async function loadCredentials(): Promise<StoredCredentials | null> {
-  const [serverUrl, apiKey] = await Promise.all([
-    getItem(SERVER_URL_KEY),
-    getItem(API_KEY_KEY),
-  ]);
-  if (!serverUrl || !apiKey) return null;
-  return { serverUrl, apiKey };
+  return readCredentials(credentialStorage);
 }
 
 export async function saveCredentials(credentials: StoredCredentials): Promise<void> {
-  const serverUrl = normalizeBaseUrl(credentials.serverUrl);
-  if (!serverUrl || !credentials.apiKey.trim()) {
-    throw new Error('Enter both a relay URL and API key.');
-  }
-  await Promise.all([
-    setItem(SERVER_URL_KEY, serverUrl),
-    setItem(API_KEY_KEY, credentials.apiKey.trim()),
-  ]);
+  await writeCredentials(credentialStorage, credentials satisfies CredentialValues);
 }
 
 export async function clearCredentials(): Promise<void> {
-  await Promise.all([
-    deleteItem(SERVER_URL_KEY),
-    deleteItem(API_KEY_KEY),
-  ]);
+  await removeCredentials(credentialStorage);
 }
 
 export async function loadThemePreference(): Promise<ThemePreference> {

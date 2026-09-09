@@ -6,12 +6,13 @@ import { useApp } from '@/context/AppContext';
 import { ApiError, LnkzApiClient } from '@/services/lnkz-api';
 import { useColors } from '@/hooks/useColors';
 import { PROTOCOL_DOCS_URL } from '@/constants/links';
+import { defaultRelayUrl } from '@/services/config';
 
 export default function WelcomeScreen() {
   const colors = useColors();
   const router = useRouter();
   const { credentials, isReady, connect } = useApp();
-  const defaultServerUrl = process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : '';
+  const defaultServerUrl = defaultRelayUrl();
   const [serverUrl, setServerUrl] = useState(credentials?.serverUrl ?? defaultServerUrl);
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState(false);
@@ -30,7 +31,7 @@ export default function WelcomeScreen() {
     setBusy(true);
     try {
       const client = new LnkzApiClient({ serverUrl, apiKey });
-      await client.health();
+      await client.validateConnection();
       await connect(serverUrl, apiKey);
       router.replace('/(tabs)');
     } catch (nextError) {

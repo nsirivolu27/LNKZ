@@ -23,9 +23,9 @@ export default function SettingsScreen() {
   const connectorsQuery = useQuery({
     queryKey: ['connectors'],
     enabled: Boolean(api),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!api) throw new ApiError('Connect to a relay first.', 0);
-      return api.connectors();
+      return api.connectors(signal);
     },
   });
 
@@ -35,8 +35,9 @@ export default function SettingsScreen() {
     setStatus('');
     try {
       const client = new LnkzApiClient({ serverUrl, apiKey: apiKey || credentials?.apiKey || '' });
-      await client.health();
+      await client.validateConnection();
       await connect(serverUrl, apiKey || credentials?.apiKey || '');
+      setApiKey('');
       setStatus('Connection tested and saved.');
     } catch (nextError) {
       setError(nextError instanceof ApiError ? nextError.message : 'Could not test the relay.');
@@ -57,6 +58,12 @@ export default function SettingsScreen() {
       <ScreenHeader eyebrow="04 / THE SETTINGS" title="Make it yours." description="The relay remains the source of truth. This app only stores your connection and preferences." />
       <View style={[styles.section, { borderColor: colors.border }]}>
         <SectionLabel>RELAY CONNECTION</SectionLabel>
+        <View style={styles.connectionStatus}>
+          <Chip label={credentials ? 'AUTHENTICATED' : 'DISCONNECTED'} selected={Boolean(credentials)} />
+          <Text numberOfLines={1} style={[styles.connectionUrl, { color: colors.mutedForeground }]}>
+            {credentials?.serverUrl ?? 'No relay configured'}
+          </Text>
+        </View>
         <Field label="Server URL" value={serverUrl} onChangeText={setServerUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
         <Field label="API key" hint="leave blank to keep current" value={apiKey} onChangeText={setApiKey} autoCapitalize="none" autoCorrect={false} secureTextEntry />
         {error ? <ErrorNotice message={error} /> : null}
@@ -104,6 +111,8 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   section: { gap: 12, padding: 12, borderTopWidth: 1.5, borderBottomWidth: 1.5 },
+  connectionStatus: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  connectionUrl: { flex: 1, fontFamily: 'Inter_500Medium', fontSize: 11 },
   themeRow: { flexDirection: 'row', gap: 8 },
   status: { fontFamily: 'Inter_600SemiBold', fontSize: 13 },
   muted: { fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 17 },

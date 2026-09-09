@@ -11,14 +11,15 @@ export default function ConversationDetailScreen() {
   const colors = useColors();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { api } = useApp();
+  const { api, selectedConversationIds, setConversationSelected } = useApp();
   const conversationId = String(id);
+  const selected = selectedConversationIds.includes(conversationId);
   const detailQuery = useQuery({
     queryKey: ['conversation', conversationId],
     enabled: Boolean(api && conversationId),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!api) throw new ApiError('Connect to a relay first.', 0);
-      return api.getConversation(conversationId);
+      return api.getConversation(conversationId, signal);
     },
   });
 
@@ -36,6 +37,26 @@ export default function ConversationDetailScreen() {
       />
       <View style={styles.actions}>
         <PrimaryButton label="Create handoff" icon="link" onPress={() => router.push({ pathname: '/handoff/new', params: { conversationId } })} />
+        <View style={styles.selectionActions}>
+          <PrimaryButton
+            label={selected ? 'Remove from packet' : 'Add to packet'}
+            icon={selected ? 'minus-circle' : 'plus-circle'}
+            onPress={() => setConversationSelected(conversationId, !selected)}
+            style={styles.flex}
+          />
+          <PrimaryButton
+            label="Build packet"
+            icon="zap"
+            onPress={() => {
+              if (!selected) setConversationSelected(conversationId, true);
+              router.push('/build');
+            }}
+            style={styles.flex}
+          />
+        </View>
+        <Text style={[styles.selectionHint, { color: colors.mutedForeground }]}>
+          {selected ? 'This conversation will be included in the next context packet.' : 'Select this conversation to carry its bounded context into the packet builder.'}
+        </Text>
         <View style={styles.metaRow}>
           {conversation.tags.slice(0, 4).map((tag) => <Chip key={tag} label={tag} />)}
           {conversation.lineage?.originVerification ? <Chip label={conversation.lineage.originVerification} selected={conversation.lineage.originVerification === 'verified'} /> : null}
@@ -86,6 +107,9 @@ function ClaimGroup({ title, items }: { title: string; items: string[] }) {
 const styles = StyleSheet.create({
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   actions: { gap: 12 },
+  selectionActions: { flexDirection: 'row', gap: 8 },
+  selectionHint: { fontFamily: 'Inter_500Medium', fontSize: 11, lineHeight: 16 },
+  flex: { flex: 1 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   analysis: { padding: 14, borderWidth: 1.5, gap: 16 },
   stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 18 },
