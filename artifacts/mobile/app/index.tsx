@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AppScreen, Field, FieldHandoffHeader, FieldHandoffPreview, PrimaryButton, SecondaryButton } from '@/components/ui';
@@ -6,7 +6,7 @@ import { useApp } from '@/context/AppContext';
 import { ApiError, LnkzApiClient } from '@/services/lnkz-api';
 import { useColors } from '@/hooks/useColors';
 import { PROTOCOL_DOCS_URL } from '@/constants/links';
-import { defaultRelayUrl } from '@/services/config';
+import { defaultRelayUrl, requestBrowserPreviewSession } from '@/services/config';
 
 export default function WelcomeScreen() {
   const colors = useColors();
@@ -16,13 +16,32 @@ export default function WelcomeScreen() {
   const [serverUrl, setServerUrl] = useState(credentials?.serverUrl ?? defaultServerUrl);
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState(false);
+  const [autoConnecting, setAutoConnecting] = useState(Platform.OS === 'web' && Boolean(defaultServerUrl));
   const [error, setError] = useState('');
+  const previewAttempted = useRef(false);
 
   useEffect(() => {
     if (isReady && credentials) router.replace('/(tabs)');
   }, [credentials, isReady, router]);
 
-  if (!isReady || credentials) {
+  useEffect(() => {
+    if (!isReady || credentials || Platform.OS !== 'web' || previewAttempted.current) return;
+    previewAttempted.current = true;
+    void requestBrowserPreviewSession(defaultServerUrl)
+      .then(async (previewCredentials) => {
+        if (!previewCredentials) return;
+        const client = new LnkzApiClient(previewCredentials);
+        await client.validateConnection();
+        await connect(previewCredentials.serverUrl, previewCredentials.apiKey);
+        router.replace('/(tabs)');
+      })
+      .catch((nextError: unknown) => {
+        setError(nextError instanceof Error ? nextError.message : 'Could not start the connected preview.');
+      })
+      .finally(() => setAutoConnecting(false));
+  }, [connect, credentials, defaultServerUrl, isReady, router]);
+
+  if (!isReady || credentials || autoConnecting) {
     return <View style={[styles.loading, { backgroundColor: colors.background }]}><ActivityIndicator color={colors.primary} /></View>;
   }
 

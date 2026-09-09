@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Request, Response } from "express";
 import {
   createApiKeyMiddleware,
+  createCorsMiddleware,
   rateLimit,
   requireScope,
   requestClientKey,
@@ -178,6 +179,66 @@ test("static API keys preserve the principal workspace, actor, and scopes", asyn
     scopes: ["read"],
     authMethod: "api-key",
   });
+});
+
+test("origin-bound ephemeral credentials preserve their limited principal", async () => {
+  const middleware = createApiKeyMiddleware(
+    [],
+    true,
+    "fallback",
+    undefined,
+    undefined,
+    (token, request) => token === "preview-token" && request.header("origin") === "https://mobile.example"
+      ? { workspaceId, actorId: "mobile-preview", scopes: ["read", "write"] }
+      : undefined,
+  );
+  let seen: RequestContext | undefined;
+  middleware(requestDouble({
+    headers: {
+      authorization: "Bearer preview-token",
+      origin: "https://mobile.example",
+    },
+  }), responseDouble() as never, () => {
+    seen = currentRequestContext();
+  });
+  await flush();
+  assert.deepEqual(seen && {
+    workspaceId: seen.workspaceId,
+    actorId: seen.actorId,
+    scopes: [...seen.scopes],
+  }, {
+    workspaceId,
+    actorId: "mobile-preview",
+    scopes: ["read", "write"],
+  });
+
+  const deniedResponse = responseDouble();
+  middleware(requestDouble({
+    headers: {
+      authorization: "Bearer preview-token",
+      origin: "https://other.example",
+    },
+  }), deniedResponse as never, () => {
+    throw new Error("a preview token must stay bound to its issuing origin");
+  });
+  await flush();
+  assert.equal(deniedResponse.statusCode, 401);
+});
+
+test("CORS reflects only exact configured origins", () => {
+  const middleware = createCorsMiddleware(["https://mobile.example"]);
+  const allowed = responseDouble();
+  let called = false;
+  middleware(requestDouble({ headers: { origin: "https://mobile.example" } }), allowed as never, () => {
+    called = true;
+  });
+  assert.equal(called, true);
+  assert.equal(allowed.headers["access-control-allow-origin"], "https://mobile.example");
+  assert.equal(allowed.headers["access-control-allow-headers"], "Authorization,Content-Type");
+
+  const denied = responseDouble();
+  middleware(requestDouble({ headers: { origin: "https://other.example" } }), denied as never, () => undefined);
+  assert.equal(denied.headers["access-control-allow-origin"], undefined);
 });
 
 test("signed MCP context crosses a server hop without trusting plain headers", async () => {

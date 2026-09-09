@@ -2,10 +2,12 @@ import express from "express";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import {
   createApiKeyMiddleware,
+  createCorsMiddleware,
   createOriginValidator,
   rateLimit,
   requireScope,
@@ -56,12 +58,30 @@ const app = createMcpExpressApp({ host, allowedHosts: allowedHosts.length ? allo
 app.set("trust proxy", config.trustProxy);
 const { store, core, connectors, sharedRateLimiter } = createRuntime();
 const managedAuth = config.auth.managed.enabled ? new ManagedAuthService(config.auth.managed) : undefined;
+const mobilePreviewOrigin = process.env.NODE_ENV !== "production" && process.env.REPLIT_EXPO_DEV_DOMAIN?.trim()
+  ? `https://${process.env.REPLIT_EXPO_DEV_DOMAIN.trim()}`
+  : undefined;
+const mobilePreviewSessions = new Map<string, number>();
 const authenticate = createApiKeyMiddleware(
   config.auth.principals,
   config.auth.apiKeyRequired,
   config.auth.defaultWorkspaceId,
   managedAuth,
   config.mcp.contextSecret,
+  (token, request) => {
+    if (!mobilePreviewOrigin || request.header("origin") !== mobilePreviewOrigin) return undefined;
+    const expiresAt = mobilePreviewSessions.get(token);
+    if (!expiresAt) return undefined;
+    if (expiresAt <= Date.now()) {
+      mobilePreviewSessions.delete(token);
+      return undefined;
+    }
+    return {
+      workspaceId: config.auth.defaultWorkspaceId,
+      actorId: "mobile-preview",
+      scopes: ["read", "write"],
+    };
+  },
 );
 const requireApiKey = (request: express.Request, response: express.Response, next: express.NextFunction): void => {
   authenticate(request, response, () => {
@@ -78,6 +98,7 @@ app.disable("x-powered-by");
 app.use(securityHeaders);
 app.use(express.json({ limit: config.maxBody }));
 app.use(createOriginValidator(config.allowedOrigins));
+app.use(createCorsMiddleware(config.allowedOrigins));
 app.use((request, response, next) => {
   if (request.path === "/health" || request.path === config.mcp.path || request.path.startsWith("/api/")) {
     response.setHeader("cache-control", "no-store");
@@ -123,6 +144,24 @@ const sharedApiLimiter = sharedRateLimitMiddleware(sharedRateLimiter, {
   bucket: "api",
   windowMs: config.rateLimitWindowMs,
   max: config.apiRateLimit,
+});
+
+app.post("/api/preview/session", apiLimiter, (request, response) => {
+  if (!mobilePreviewOrigin || request.header("origin") !== mobilePreviewOrigin) {
+    response.status(404).json({ error: "Not found." });
+    return;
+  }
+  for (const [existingToken, existingExpiry] of mobilePreviewSessions) {
+    if (existingExpiry <= Date.now()) mobilePreviewSessions.delete(existingToken);
+  }
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = Date.now() + 8 * 60 * 60 * 1000;
+  mobilePreviewSessions.set(token, expiresAt);
+  response.json({
+    token,
+    serverUrl: publicBaseUrl,
+    expiresAt: new Date(expiresAt).toISOString(),
+  });
 });
 
 app.get("/health", (_request, response) => {

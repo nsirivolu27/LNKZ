@@ -1,0 +1,72 @@
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800;900&family=Space+Mono:wght@400;700&display=swap");
+
+.claude-space-shell {
+  --ink: #171a18;
+  --paper: #f4f0e7;
+  --mint: #c8f1b9;
+  --muted: #666961;
+  width: 100%;
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Space Mono", monospace;
+  overflow: hidden;
+}
+
+.claude-space-shell * { box-sizing: border-box; }
+.claude-space-header { height: 78px; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--ink); padding: 0 21px; }
+.claude-space-brand { display: flex; align-items: center; gap: 11px; }
+.claude-space-brand > svg { color: var(--mint); fill: var(--ink); }
+.claude-space-brand strong { display: block; font: 900 22px/1 "Archivo", sans-serif; letter-spacing: -.06em; }
+.claude-space-brand span { display: block; margin-top: 5px; font-size: 7px; letter-spacing: .13em; }
+.claude-space-menu { border: 0; padding: 7px; background: transparent; color: var(--ink); cursor: pointer; }
+.claude-space-progress { display: flex; align-items: center; gap: 9px; height: 46px; padding: 0 21px; border-bottom: 1px solid var(--ink); font-size: 8px; letter-spacing: .13em; }
+.claude-space-progress-line { width: 52px; height: 3px; background: #d7d2c7; }
+.claude-space-progress-line i { display: block; width: 66%; height: 100%; background: var(--ink); }
+.claude-space-progress span:last-child { margin-left: auto; }
+.claude-space-content { padding: 24px 21px 27px; animation: claude-space-in .25s steps(2) both; }
+.claude-space-back { display: flex; align-items: center; gap: 5px; border: 0; background: transparent; padding: 0; color: var(--ink); font: 700 8px "Space Mono", monospace; letter-spacing: .08em; cursor: pointer; }
+.claude-space-eyebrow { display: block; margin-top: 29px; font-size: 8px; letter-spacing: .18em; }
+.claude-space-content h1 { margin: 18px 0 0; font: 900 clamp(43px, 12vw, 62px)/.85 "Archivo", sans-serif; letter-spacing: -.085em; text-transform: uppercase; }
+.claude-space-content h1 em { display: inline-block; margin-top: 10px; padding: 3px 7px 5px; background: var(--mint); font-style: normal; }
+.claude-space-intro { max-width: 367px; margin: 21px 0 22px; font-size: 10px; line-height: 1.6; text-transform: uppercase; }
+.claude-space-room { border: 2px solid var(--ink); background: #e9e5db; padding: 14px 13px 12px; }
+.claude-space-room-top, .claude-space-packet-heading { display: flex; align-items: center; justify-content: space-between; }
+.claude-space-room-label { display: flex; align-items: center; gap: 6px; font-size: 8px; letter-spacing: .1em; }
+.claude-space-room-dot { width: 8px; height: 8px; border-radius: 50%; background: #79bc69; border: 1px solid var(--ink); }
+.claude-space-room-name { display: flex; align-items: center; gap: 10px; margin-top: 17px; }
+.claude-space-avatar, .claude-space-mini-avatar { display: grid; place-items: center; flex: 0 0 auto; width: 40px; height: 40px; background: var(--ink); color: var(--mint); font: 800 21px "Archivo", sans-serif; }
+.claude-space-room-name strong { display: block; font: 800 17px "Archivo", sans-serif; letter-spacing: -.04em; }
+.claude-space-room-name span:not(.claude-space-room-label) { display: block; margin-top: 4px; color: var(--muted); font-size: 7px; letter-spacing: .1em; }
+.claude-space-change { display: flex; align-items: center; gap: 2px; margin-left: auto; border: 0; background: transparent; font: 700 8px "Space Mono", monospace; cursor: pointer; }
+.claude-space-room-rule { margin: 15px 0 11px; border-top: 1px solid #aba89e; }
+.claude-space-room-note { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 8px; line-height: 1.4; }
+.claude-space-destinations { margin: 12px -3px -3px; border: 1px solid var(--ink); background: var(--paper); }
+.claude-space-destinations button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px; border: 0; background: transparent; text-align: left; color: var(--ink); cursor: pointer; }
+.claude-space-mini-avatar { width: 25px; height: 25px; font-size: 14px; }
+.claude-space-destinations b, .claude-space-destinations small { display: block; }
+.claude-space-destinations b { font: 700 11px "Archivo", sans-serif; }
+.claude-space-destinations small { margin-top: 3px; font-size: 7px; color: var(--muted); }
+.claude-space-destinations button > svg { margin-left: auto; }
+.claude-space-destination-note { padding: 8px 9px; border-top: 1px solid var(--ink); font-size: 7px; color: var(--muted); }
+.claude-space-packet { margin-top: 13px; padding: 13px; border: 1px solid var(--ink); background: transparent; }
+.claude-space-packet-heading { font-size: 7px; letter-spacing: .13em; color: var(--muted); }
+.claude-space-packet > strong { display: block; margin-top: 10px; font: 700 13px/1.15 "Archivo", sans-serif; }
+.claude-space-packet > small { display: block; margin-top: 7px; font-size: 7px; letter-spacing: .08em; }
+.claude-space-toggle { display: flex; align-items: center; gap: 8px; margin-top: 17px; font-size: 9px; cursor: pointer; }
+.claude-space-toggle input { position: absolute; opacity: 0; }
+.claude-space-toggle-track { width: 29px; height: 17px; padding: 2px; border: 1px solid var(--ink); background: var(--ink); }
+.claude-space-toggle-track i { display: block; width: 11px; height: 11px; background: var(--mint); transition: transform .15s steps(2); }
+.claude-space-toggle input:not(:checked) + .claude-space-toggle-track { background: transparent; }
+.claude-space-toggle input:checked + .claude-space-toggle-track i { transform: translateX(12px); }
+.claude-space-toggle small { margin-left: auto; font-size: 7px; color: var(--muted); }
+.claude-space-send { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 19px; padding: 15px 14px; border: 2px solid var(--ink); background: var(--mint); color: var(--ink); font: 900 14px "Archivo", sans-serif; letter-spacing: -.03em; cursor: pointer; transition: background .12s steps(2), color .12s steps(2); }
+.claude-space-send:hover { background: var(--ink); color: var(--paper); }
+.claude-space-footnote { display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 13px; font-size: 7px; letter-spacing: .09em; color: var(--muted); }
+.claude-space-success { padding-top: 73px; text-align: center; }
+.claude-space-success-mark { display: grid; place-items: center; width: 63px; height: 63px; margin: 0 auto 25px; border: 2px solid var(--ink); background: var(--mint); }
+.claude-space-success .claude-space-eyebrow { margin-top: 0; }
+.claude-space-success h1 { margin-top: 16px; }
+.claude-space-success p { margin: 24px auto 0; max-width: 315px; font-size: 10px; line-height: 1.65; text-transform: uppercase; }
+.claude-space-secondary { display: inline-flex; align-items: center; gap: 7px; margin-top: 31px; border: 0; border-bottom: 1px solid var(--ink); padding: 5px 0; background: transparent; font: 700 9px "Space Mono", monospace; cursor: pointer; }
+@keyframes claude-space-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }

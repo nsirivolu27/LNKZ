@@ -37,6 +37,7 @@ export function createApiKeyMiddleware(
   defaultWorkspaceId: string,
   managed?: ManagedAuthenticator,
   forwardedContextSecret?: string,
+  resolveEphemeralPrincipal?: (token: string, request: Request) => Omit<ApiPrincipal, "key"> | undefined,
 ): (request: Request, response: Response, next: NextFunction) => void {
   return (request, response, next) => {
     void (async () => {
@@ -45,12 +46,16 @@ export function createApiKeyMiddleware(
       const principal = actual
         ? principals.find((candidate) => equalSecret(actual, candidate.key))
         : undefined;
+      const ephemeralPrincipal = actual && !principal
+        ? resolveEphemeralPrincipal?.(actual, request)
+        : undefined;
 
-      if (principal) {
+      if (principal || ephemeralPrincipal) {
+        const authenticated = principal ?? ephemeralPrincipal!;
         runWithRequestContext({
-          workspaceId: principal.workspaceId,
-          actorId: principal.actorId,
-          scopes: new Set(principal.scopes),
+          workspaceId: authenticated.workspaceId,
+          actorId: authenticated.actorId,
+          scopes: new Set(authenticated.scopes),
           authMethod: "api-key",
         }, next);
         return;
@@ -109,6 +114,26 @@ export function createOriginValidator(allowed: string[]): (request: Request, res
     const origin = request.header("origin");
     if (origin && !isOriginAllowed(origin, request.header("host"), allowed)) {
       response.status(403).json({ error: "Origin is not allowed." });
+      return;
+    }
+    next();
+  };
+}
+
+export function createCorsMiddleware(allowed: string[]): (request: Request, response: Response, next: NextFunction) => void {
+  return (request, response, next) => {
+    const origin = request.header("origin");
+    if (!origin || !allowed.includes(origin)) {
+      next();
+      return;
+    }
+    response.setHeader("access-control-allow-origin", origin);
+    response.setHeader("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
+    response.setHeader("access-control-allow-headers", "Authorization,Content-Type");
+    response.setHeader("access-control-max-age", "600");
+    response.append("vary", "Origin");
+    if (request.method === "OPTIONS") {
+      response.status(204).end();
       return;
     }
     next();

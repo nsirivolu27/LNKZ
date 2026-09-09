@@ -4,6 +4,7 @@ import { CredentialStorage, readCredentials, removeCredentials, writeCredentials
 import { updateConversationSelection } from '@/services/context-selection';
 import { getHandoffState } from '@/services/handoff-state';
 import { buildConversationQuery, LnkzApiClient, messageForApiFailure, normalizeBaseUrl } from '@/services/lnkz-api';
+import { requestBrowserPreviewSession } from '@/services/config';
 import { redactSensitiveText } from '@/services/redaction';
 
 const originalFetch = globalThis.fetch;
@@ -83,6 +84,23 @@ test('connection validation reaches an authenticated endpoint before credentials
   const client = new LnkzApiClient({ serverUrl: 'relay.example.com', apiKey: 'key' });
   assert.equal((await client.validateConnection()).ok, true);
   assert.deepEqual(paths, ['/health', '/api/stats']);
+});
+
+test('browser preview session requests an origin-bound token without bundling an API key', async () => {
+  mockFetch((url, init) => {
+    assert.equal(url, 'https://relay.example.com/api/preview/session');
+    assert.equal(init?.method, 'POST');
+    assert.equal(new Headers(init?.headers).has('authorization'), false);
+    return Response.json({
+      token: 'ephemeral-preview-token',
+      serverUrl: 'https://relay.example.com',
+      expiresAt: '2026-09-09T12:00:00.000Z',
+    });
+  });
+  assert.deepEqual(await requestBrowserPreviewSession('relay.example.com'), {
+    serverUrl: 'https://relay.example.com',
+    apiKey: 'ephemeral-preview-token',
+  });
 });
 
 test('import preview posts dry-run intent and preserves warnings for the UI', async () => {
