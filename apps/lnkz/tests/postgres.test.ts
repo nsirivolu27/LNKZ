@@ -230,6 +230,53 @@ test("Postgres migration SQL failures identify the migration and preserve the da
   }
 });
 
+test("Postgres post-migration setup failures identify the last applied migration", async () => {
+  const previousAppRole = process.env.LNKZ_DATABASE_APP_ROLE;
+  const databaseError = new Error("permission denied for schema public");
+  process.env.LNKZ_DATABASE_APP_ROLE = "lnkz_app";
+  const client = {
+    query: async (statement: string) => {
+      if (statement.includes("select current_user as role_name")) return { rows: [{ role_name: "migration-role" }] };
+      if (statement.includes("select version from schema_migrations")) {
+        return { rows: [{ version: 1 }, { version: 2 }, { version: 3 }] };
+      }
+      if (statement.includes("grant usage on schema public")) {
+        throw databaseError;
+      }
+      return { rows: [] };
+    },
+    release: () => undefined,
+  } as unknown as import("pg").PoolClient;
+  const originalConnect = Pool.prototype.connect;
+  Object.defineProperty(Pool.prototype, "connect", {
+    configurable: true,
+    value: async () => client,
+  });
+
+  try {
+    await assert.rejects(
+      runPostgresMigrations("postgres://post-migration-context-test.invalid"),
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.match(error.message, /Migration 3 \(003_instance_identity\.sql\) post-migration setup failed/);
+        assert.match(error.message, /permission denied for schema public/);
+        assert.equal(error.cause, databaseError);
+        return true;
+      },
+    );
+  } finally {
+    if (previousAppRole === undefined) {
+      delete process.env.LNKZ_DATABASE_APP_ROLE;
+    } else {
+      process.env.LNKZ_DATABASE_APP_ROLE = previousAppRole;
+    }
+    Object.defineProperty(Pool.prototype, "connect", {
+      configurable: true,
+      value: originalConnect,
+    });
+  }
+});
+
 test("Postgres migrations reject the configured runtime role", async () => {
   const previousAppRole = process.env.LNKZ_DATABASE_APP_ROLE;
   process.env.LNKZ_DATABASE_APP_ROLE = "lnkz-app";
