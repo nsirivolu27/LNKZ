@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -18,7 +20,10 @@ import { SqliteConversationStore } from "../src/lnkz/store/sqlite.js";
 const migrationUrl = process.env.LNKZ_POSTGRES_MIGRATION_URL;
 const appUrl = process.env.LNKZ_POSTGRES_TEST_URL;
 const expectedAppRole = process.env.LNKZ_POSTGRES_TEST_ROLE;
+const unsafeOwnerUrl = process.env.LNKZ_POSTGRES_UNSAFE_OWNER_URL;
+const bypassRlsUrl = process.env.LNKZ_POSTGRES_BYPASS_URL;
 const enabled = Boolean(migrationUrl && appUrl);
+const unsafeRolesEnabled = Boolean(migrationUrl && unsafeOwnerUrl && bypassRlsUrl);
 
 afterEach(async () => {
   if (enabled) await clearPostgresData();
@@ -238,6 +243,22 @@ test("Postgres integration uses the restricted application role", { skip: !enabl
   } finally {
     await pool.end();
   }
+});
+
+test("Postgres server rejects unsafe owner and BYPASSRLS roles before listening", { skip: !unsafeRolesEnabled }, async () => {
+  await runPostgresMigrations(migrationUrl);
+
+  const ownerRole = roleNameFromUrl(unsafeOwnerUrl);
+  await assertServerRejectsUnsafeRole(
+    unsafeOwnerUrl,
+    `Postgres runtime role "${ownerRole}" owns application table(s): public.conversations, public.events, public.handoffs, public.instance_identity, public.messages, public.rate_limit_buckets, public.workspaces; configure DATABASE_URL with a separate non-owner application role.`,
+  );
+
+  const bypassRole = roleNameFromUrl(bypassRlsUrl);
+  await assertServerRejectsUnsafeRole(
+    bypassRlsUrl,
+    `Postgres runtime role "${bypassRole}" has BYPASSRLS; configure DATABASE_URL with a non-BYPASSRLS application role.`,
+  );
 });
 
 test("Postgres application role has the runtime schema privileges", { skip: !enabled }, async () => {
@@ -747,6 +768,76 @@ test("Postgres RLS fails closed for unset, empty, and foreign workspace context"
 
 function postgresSsl(): false | { rejectUnauthorized: boolean } {
   return process.env.DATABASE_SSL === "false" ? false : { rejectUnauthorized: true };
+}
+
+function roleNameFromUrl(databaseUrl: string | undefined): string {
+  assert.ok(databaseUrl);
+  return decodeURIComponent(new URL(databaseUrl).username);
+}
+
+async function assertServerRejectsUnsafeRole(databaseUrl: string | undefined, expectedError: string): Promise<void> {
+  assert.ok(databaseUrl);
+  const port = await freePort();
+  const child = spawn(process.execPath, [".testbuild/src/index.js"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      DATABASE_URL: databaseUrl,
+      DATABASE_SSL: process.env.DATABASE_SSL ?? "false",
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      LNKZ_PUBLIC_BASE_URL: `http://127.0.0.1:${port}`,
+      LNKZ_ALLOW_UNAUTHENTICATED: "true",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdout = `${stdout}${chunk}`;
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderr = `${stderr}${chunk}`;
+  });
+
+  const exit = await waitForExit(child);
+  assert.equal(exit.code, 1, `unsafe Postgres role process exited unexpectedly: ${stdout}\n${stderr}`);
+  assert.match(`${stdout}\n${stderr}`, new RegExp(escapeRegExp(expectedError)));
+  await assert.rejects(fetch(`http://127.0.0.1:${port}/health`));
+}
+
+async function waitForExit(child: ReturnType<typeof spawn>): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("unsafe Postgres role process did not exit after the preflight failure"));
+    }, 10_000);
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timeout);
+      resolve({ code, signal });
+    });
+  });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address() as AddressInfo;
+  const port = address.port;
+  await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  return port;
 }
 
 async function resetPostgresSchema(): Promise<void> {

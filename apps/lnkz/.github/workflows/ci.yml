@@ -16,6 +16,8 @@ jobs:
       LNKZ_POSTGRES_MIGRATION_URL: postgresql://lnkz_test:lnkz_test@localhost:5432/lnkz_test
       LNKZ_POSTGRES_TEST_URL: postgresql://lnkz_app:lnkz_app@localhost:5432/lnkz_test
       LNKZ_POSTGRES_TEST_ROLE: lnkz_app
+      LNKZ_POSTGRES_UNSAFE_OWNER_URL: postgresql://lnkz_test:lnkz_test@localhost:5432/lnkz_test
+      LNKZ_POSTGRES_BYPASS_URL: postgresql://lnkz_bypass:lnkz_bypass@localhost:5432/lnkz_test
       LNKZ_DATABASE_APP_ROLE: lnkz_app
       DATABASE_SSL: "false"
     services:
@@ -41,6 +43,8 @@ jobs:
         run: |
           PGPASSWORD=lnkz_test psql "$LNKZ_POSTGRES_MIGRATION_URL" \
             --command "create role lnkz_app login password 'lnkz_app' nosuperuser nocreatedb nocreaterole noreplication nobypassrls"
+          PGPASSWORD=lnkz_test psql "$LNKZ_POSTGRES_MIGRATION_URL" \
+            --command "create role lnkz_bypass login password 'lnkz_bypass' nosuperuser nocreatedb nocreaterole noreplication bypassrls"
       - name: Enable pinned pnpm
         run: |
           corepack enable
