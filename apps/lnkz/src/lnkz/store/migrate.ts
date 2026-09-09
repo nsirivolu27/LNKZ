@@ -26,6 +26,18 @@ export async function runPostgresMigrations(databaseUrl = process.env.DATABASE_U
   const migrationsDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "migrations");
   const client = await pool.connect();
   try {
+    const connectedRole = await client.query<{ role_name: string }>("select current_user as role_name");
+    const roleName = connectedRole.rows[0]?.role_name;
+    const applicationRole = process.env.LNKZ_DATABASE_APP_ROLE;
+    if (!roleName) {
+      throw new Error("Postgres migration role could not be identified; refusing to run.");
+    }
+    if (applicationRole && roleName === applicationRole) {
+      throw new Error(
+        `Postgres migration role "${roleName}" matches LNKZ_DATABASE_APP_ROLE; configure DATABASE_URL with a separate migration-only role and set LNKZ_DATABASE_APP_ROLE to the runtime-only application role.`,
+      );
+    }
+
     await client.query("begin");
     await client.query(`
       create table if not exists schema_migrations (

@@ -196,6 +196,7 @@ test("Postgres migration SQL failures identify the migration and preserve the da
   const databaseError = new Error('column "actor_id" already exists');
   const client = {
     query: async (statement: string) => {
+      if (statement.includes("select current_user as role_name")) return { rows: [{ role_name: "migration-role" }] };
       if (statement.includes("select version from schema_migrations")) return { rows: [] };
       if (statement.includes("alter table events add column if not exists actor_id text")) {
         throw databaseError;
@@ -222,6 +223,47 @@ test("Postgres migration SQL failures identify the migration and preserve the da
       },
     );
   } finally {
+    Object.defineProperty(Pool.prototype, "connect", {
+      configurable: true,
+      value: originalConnect,
+    });
+  }
+});
+
+test("Postgres migrations reject the configured runtime role", async () => {
+  const previousAppRole = process.env.LNKZ_DATABASE_APP_ROLE;
+  process.env.LNKZ_DATABASE_APP_ROLE = "lnkz-app";
+  const client = {
+    query: async (statement: string) => {
+      if (statement.includes("select current_user as role_name")) return { rows: [{ role_name: "lnkz-app" }] };
+      throw new Error(`unexpected query: ${statement}`);
+    },
+    release: () => undefined,
+  } as unknown as import("pg").PoolClient;
+  const originalConnect = Pool.prototype.connect;
+  Object.defineProperty(Pool.prototype, "connect", {
+    configurable: true,
+    value: async () => client,
+  });
+
+  try {
+    await assert.rejects(
+      runPostgresMigrations("postgres://runtime-role-test.invalid"),
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.equal(
+          error.message,
+          'Postgres migration role "lnkz-app" matches LNKZ_DATABASE_APP_ROLE; configure DATABASE_URL with a separate migration-only role and set LNKZ_DATABASE_APP_ROLE to the runtime-only application role.',
+        );
+        return true;
+      },
+    );
+  } finally {
+    if (previousAppRole === undefined) {
+      delete process.env.LNKZ_DATABASE_APP_ROLE;
+    } else {
+      process.env.LNKZ_DATABASE_APP_ROLE = previousAppRole;
+    }
     Object.defineProperty(Pool.prototype, "connect", {
       configurable: true,
       value: originalConnect,

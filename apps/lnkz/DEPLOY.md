@@ -44,20 +44,31 @@ files. Nodes without the value keep forwarding disabled and still support ordina
 
 ## Postgres
 
-Run migrations with a migration-capable role, then run the server with a separate non-owner role:
+Use two distinct Postgres roles:
+
+- The migration-only role is the account in `DATABASE_URL` for `pnpm db:migrate`. It needs
+  permission to create and alter the schema and should not be used by the running server.
+- The runtime-only role is the non-owner, non-`BYPASSRLS` account in `DATABASE_URL` for
+  `pnpm start`. Set its name in `LNKZ_DATABASE_APP_ROLE` only while running migrations so the
+  migration command can grant it the required table permissions.
+
+The migration command refuses to run if the connected `DATABASE_URL` role is the same as
+`LNKZ_DATABASE_APP_ROLE`.
 
 ```bash
 pnpm build
-DATABASE_URL=postgresql://migration-role:...@host/lnkz pnpm db:migrate
+# DATABASE_URL is the migration-only role for this command.
+DATABASE_URL=postgresql://migration-role:...@host/lnkz \
+  LNKZ_DATABASE_APP_ROLE=lnkz-app pnpm db:migrate
+# DATABASE_URL is the runtime-only role for this command.
 DATABASE_URL=postgresql://lnkz-app:...@host/lnkz pnpm start
 ```
 
-Set `LNKZ_DATABASE_APP_ROLE` during migration to grant the application role table DML. The runtime
-role must not own application tables and must not have `BYPASSRLS`. `pnpm start` verifies both
-properties against the connected role before it creates the HTTP listener; if either is unsafe, it
-reports the exact property and exits without serving traffic. Migration setup is intentionally not
-part of the runtime start path. Multi-key workspace authorization requires Postgres and
-`LNKZ_AUTH_MODE=multi-key`.
+The runtime role must not own application tables and must not have `BYPASSRLS`. `pnpm start`
+verifies both properties against the connected role before it creates the HTTP listener; if either
+is unsafe, it reports the exact property and exits without serving traffic. Migration setup is
+intentionally not part of the runtime start path. Multi-key workspace authorization requires
+Postgres and `LNKZ_AUTH_MODE=multi-key`.
 
 ## Health and rollout checks
 
@@ -80,7 +91,7 @@ part of the runtime start path. Multi-key workspace authorization requires Postg
 | `LNKZ_MCP_CONTEXT_SECRET` | Shared HMAC secret for trusted multi-node MCP context forwarding; minimum 32 bytes |
 | `LNKZ_INSTANCE_NAME` | Operator-facing display name published in the public instance identity document |
 | `DATABASE_URL` | Switch from SQLite to Postgres |
-| `LNKZ_DATABASE_APP_ROLE` | Runtime Postgres role granted by the migration command |
+| `LNKZ_DATABASE_APP_ROLE` | Runtime-only Postgres role granted by `pnpm db:migrate`; do not use it as the migration connection role |
 | `LNKZ_MCP_TARGETS` | Downstream MCP targets for publish preparation |
 | `SLACK_*`, `JIRA_*`, `FIGMA_*`, `DOCUMENT_FEED_*` | Optional read-only connectors |
 
