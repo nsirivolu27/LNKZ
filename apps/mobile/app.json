@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "LNKZ",
+    "slug": "lnkz-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#f4f1e9",
+    "scheme": "lnkz",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.lnkz.mobile"
+    },
+    "android": {
+      "package": "app.lnkz.mobile"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": ["expo-secure-store"]
+  }
+}

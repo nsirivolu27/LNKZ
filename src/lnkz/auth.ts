@@ -117,6 +117,18 @@ export function createOriginValidator(allowed: string[]): (request: Request, res
       response.status(403).json({ error: "Origin is not allowed." });
       return;
     }
+    if (origin) {
+      response.vary("Origin");
+      response.setHeader("access-control-allow-origin", origin);
+      response.setHeader("access-control-allow-methods", "GET, POST, PATCH, DELETE, OPTIONS");
+      response.setHeader("access-control-allow-headers", "Authorization, Content-Type");
+      response.setHeader("access-control-max-age", "600");
+      response.setHeader("cross-origin-resource-policy", "cross-origin");
+    }
+    if (request.method === "OPTIONS") {
+      response.sendStatus(204);
+      return;
+    }
     next();
   };
 }

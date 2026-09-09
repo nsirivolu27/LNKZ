@@ -1,12 +1,65 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isOriginAllowed, rateLimit, withLoopback } from "../src/lnkz/auth.js";
+import { createOriginValidator, isOriginAllowed, rateLimit, withLoopback } from "../src/lnkz/auth.js";
 
 test("same-origin web assets work without weakening the origin allowlist", () => {
   assert.equal(isOriginAllowed("http://127.0.0.1:3100", "127.0.0.1:3100", []), true);
   assert.equal(isOriginAllowed("https://app.example", "lnkz.example", ["https://app.example"]), true);
   assert.equal(isOriginAllowed("https://evil.example", "lnkz.example", ["https://app.example"]), false);
   assert.equal(isOriginAllowed("not a url", "lnkz.example", []), false);
+});
+
+test("an allowed mobile web origin receives CORS headers and completes preflight", () => {
+  const middleware = createOriginValidator(["https://lnkz-mobile.example"]);
+  const headers = new Map<string, unknown>();
+  let status = 0;
+  let nextCalls = 0;
+  const request = {
+    method: "OPTIONS",
+    header: (name: string) => name.toLowerCase() === "origin"
+      ? "https://lnkz-mobile.example"
+      : "lnkz-api.example",
+  } as never;
+  const response = {
+    vary: (name: string) => { headers.set("vary", name); },
+    setHeader: (name: string, value: unknown) => { headers.set(name.toLowerCase(), value); },
+    sendStatus: (code: number) => { status = code; },
+  } as never;
+
+  middleware(request, response, () => { nextCalls += 1; });
+
+  assert.equal(status, 204);
+  assert.equal(nextCalls, 0);
+  assert.equal(headers.get("vary"), "Origin");
+  assert.equal(headers.get("access-control-allow-origin"), "https://lnkz-mobile.example");
+  assert.match(String(headers.get("access-control-allow-headers")), /Authorization/);
+});
+
+test("a rejected browser origin receives no CORS access", () => {
+  const middleware = createOriginValidator(["https://lnkz-mobile.example"]);
+  const headers = new Map<string, unknown>();
+  let status = 0;
+  let body: unknown;
+  let nextCalls = 0;
+  const request = {
+    method: "GET",
+    header: (name: string) => name.toLowerCase() === "origin"
+      ? "https://evil.example"
+      : "lnkz-api.example",
+  } as never;
+  const response = {
+    vary: () => undefined,
+    setHeader: (name: string, value: unknown) => { headers.set(name.toLowerCase(), value); },
+    status(code: number) { status = code; return this; },
+    json(value: unknown) { body = value; },
+  } as never;
+
+  middleware(request, response, () => { nextCalls += 1; });
+
+  assert.equal(status, 403);
+  assert.deepEqual(body, { error: "Origin is not allowed." });
+  assert.equal(nextCalls, 0);
+  assert.equal(headers.has("access-control-allow-origin"), false);
 });
 
 test("the rate limiter allows a burst then refuses, and reports retry-after", () => {
