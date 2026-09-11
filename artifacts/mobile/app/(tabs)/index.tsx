@@ -11,6 +11,7 @@ import {
   ErrorNotice,
   FieldHandoffHeader,
   FieldHandoffStat,
+  WorkspaceIdentityCard,
   SecondaryButton,
   SectionLabel,
 } from '@/components/ui';
@@ -63,13 +64,30 @@ export default function LibraryScreen() {
       return api.connectors(signal);
     },
   });
+  const workspaceQuery = useQuery({
+    queryKey: ['workspace'],
+    enabled: Boolean(api),
+    queryFn: async ({ signal }) => {
+      if (!api) throw new ApiError('Connect to a relay first.', 0);
+      return api.workspace(signal);
+    },
+  });
 
   const conversations = useMemo(() => libraryQuery.data ?? [], [libraryQuery.data]);
   const messageCount = conversations.reduce((total, item) => total + item.messageCount, 0);
   const stats = statsQuery.data?.stats;
   const connectedSources = connectorsQuery.data?.connectors.filter((connector) => connector.configured).length ?? 0;
   const error = libraryQuery.error instanceof Error ? libraryQuery.error.message : null;
-  const refreshing = libraryQuery.isRefetching || statsQuery.isRefetching || connectorsQuery.isRefetching;
+  const refreshing = libraryQuery.isRefetching || statsQuery.isRefetching || connectorsQuery.isRefetching || workspaceQuery.isRefetching;
+  const workspaceMessage = !api
+    ? 'Connect a relay to load workspace identity.'
+    : workspaceQuery.error instanceof ApiError && workspaceQuery.error.status === 401
+      ? 'Unauthorized: this API key cannot identify a workspace.'
+      : workspaceQuery.error instanceof ApiError && workspaceQuery.error.status === 0
+        ? 'Offline or unreachable: workspace identity could not be loaded.'
+        : workspaceQuery.error
+          ? 'Workspace identity is temporarily unavailable.'
+          : undefined;
 
   return (
     <AppScreen scroll={false} style={styles.page}>
@@ -86,6 +104,7 @@ export default function LibraryScreen() {
                 libraryQuery.refetch(),
                 statsQuery.refetch(),
                 connectorsQuery.refetch(),
+                workspaceQuery.refetch(),
               ]);
             }}
             tintColor={colors.primary}
@@ -98,6 +117,12 @@ export default function LibraryScreen() {
           onHandoff={() => router.push('/handoffs')}
           onSettings={() => router.push('/settings')}
           onThread={() => router.push('/(tabs)')}
+        />
+        <WorkspaceIdentityCard
+          identity={workspaceQuery.data}
+          loading={workspaceQuery.isLoading}
+          message={workspaceMessage}
+          onRetry={() => workspaceQuery.refetch()}
         />
 
         <View style={[styles.statsRow, { borderColor: colors.border }]}>

@@ -22,6 +22,7 @@ import {
   type ConversationAnalysis,
   type ConversationInput,
   type MessageInput,
+  datasetExportSchema,
 } from "./contract.js";
 
 export const LNKZ_VERSION = "0.2.0";
@@ -54,6 +55,36 @@ export function createLnkzMcpServer(client: LnkzClientLike): McpServer {
     })) as typeof server.registerTool;
 
   // ---------------------------------------------------------------- conversations
+
+  server.registerTool(
+    "get_workspace",
+    {
+      title: "Get workspace",
+      description: "Returns the authenticated workspace identity and access scopes.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      if (!client.getWorkspace) return toolError("Workspace endpoint is unavailable.");
+      const result = await client.getWorkspace();
+      return ok(`${result.workspace.name} (${result.workspace.id})`, result as unknown as Record<string, unknown>);
+    },
+  );
+
+  server.registerTool(
+    "export_training_dataset",
+    {
+      title: "Export training dataset",
+      description: "Prepares a redacted, deterministic JSONL dataset from explicitly selected conversations; this does not train a model.",
+      inputSchema: datasetExportSchema.shape,
+      annotations: { readOnlyHint: true },
+    },
+    async (input) => {
+      if (!client.exportTrainingDataset) return toolError("Dataset export endpoint is unavailable.");
+      const result = await client.exportTrainingDataset(datasetExportSchema.parse(input));
+      return ok(`Prepared dataset ${result.manifest.datasetId}; no model was trained.`, result as unknown as Record<string, unknown>);
+    },
+  );
 
   server.registerTool(
     "save_conversation",
@@ -431,6 +462,16 @@ export function createLnkzMcpServer(client: LnkzClientLike): McpServer {
   // ------------------------------------------------------------------- resources
 
   server.registerResource(
+    "workspace",
+    "lnkz://workspace",
+    { title: "LNKZ workspace", description: "Authenticated workspace identity and access scopes.", mimeType: "application/json" },
+    async () => {
+      if (!client.getWorkspace) return jsonResource("lnkz://workspace", { error: "Workspace endpoint is unavailable." });
+      return jsonResource("lnkz://workspace", await client.getWorkspace());
+    },
+  );
+
+  server.registerResource(
     "connector-status",
     "lnkz://connectors",
     { title: "LNKZ connector status", description: "Configured and disabled connector inventory.", mimeType: "application/json" },
@@ -518,7 +559,7 @@ export function createLnkzMcpServer(client: LnkzClientLike): McpServer {
       `Call analyze_conversation for ${conversationId} and summarize what the recipient needs: the decision, the reason, and what is still open. `
       + `Then call create_handoff for that conversation with audience "${audience}"`
       + `${ttlMinutes ? `, ttlMinutes ${ttlMinutes}` : ""}, redact true, and maxUses 3. `
-      + "Give the recipient the share URL and the summary together, and say when it expires.",
+       + "Tell the recipient that a scoped handoff was created and include its expiry, but never repeat or expose the share URL, token, or any bearer secret. The recipient should use an already-securely-delivered handoff.",
     ),
   );
 

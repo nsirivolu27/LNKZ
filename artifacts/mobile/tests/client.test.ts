@@ -79,11 +79,29 @@ test('connection validation reaches an authenticated endpoint before credentials
     paths.push(new URL(url).pathname);
     assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer key');
     if (url.endsWith('/health')) return Response.json({ ok: true, service: 'llmm', version: '0.2.0' });
+    if (url.endsWith('/api/workspace')) return Response.json({
+      workspace: { id: 'workspace-1', name: 'Personal', mode: 'personal', useCase: 'Context', datasets: { enabled: true } },
+      access: { actorId: 'actor-1', scopes: ['read'] },
+    });
     return Response.json({ stats: { conversations: 0, messages: 0, providers: [], activeHandoffs: 0, events: 0 } });
   });
   const client = new LnkzApiClient({ serverUrl: 'relay.example.com', apiKey: 'key' });
   assert.equal((await client.validateConnection()).ok, true);
-  assert.deepEqual(paths, ['/health', '/api/stats']);
+  assert.deepEqual(paths, ['/health', '/api/stats', '/api/workspace']);
+});
+
+test('workspace identity requests the authenticated workspace contract', async () => {
+  mockFetch((url, init) => {
+    assert.equal(url, 'https://relay.example.com/api/workspace');
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer key');
+    return Response.json({
+      workspace: { id: 'workspace-1', name: 'Research Team', mode: 'team', useCase: 'Shared context', datasets: { enabled: false } },
+      access: { actorId: 'member-1', scopes: ['mcp', 'read'] },
+    });
+  });
+  const identity = await new LnkzApiClient({ serverUrl: 'relay.example.com', apiKey: 'key' }).workspace();
+  assert.equal(identity.workspace.name, 'Research Team');
+  assert.deepEqual(identity.access.scopes, ['mcp', 'read']);
 });
 
 test('browser preview session requests an origin-bound token without bundling an API key', async () => {

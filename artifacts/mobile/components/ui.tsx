@@ -18,7 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
-import { ConversationSummary, HandoffSummary } from '@/services/lnkz-api';
+import { ConversationSummary, HandoffSummary, WorkspaceIdentity } from '@/services/lnkz-api';
 import { getHandoffState } from '@/services/handoff-state';
 
 export function AppScreen({
@@ -145,6 +145,48 @@ export function FieldHandoffStat({ label, value, style }: { label: string; value
     <View style={[styles.fieldStat, style, { borderColor: colors.border }]}>
       <Text style={[styles.fieldStatLabel, { color: colors.mutedForeground }]}>{label}</Text>
       <Text style={[styles.fieldStatValue, { color: colors.foreground }]}>{value}</Text>
+    </View>
+  );
+}
+
+export function WorkspaceIdentityCard({
+  identity,
+  loading = false,
+  message,
+  onRetry,
+}: {
+  identity?: WorkspaceIdentity;
+  loading?: boolean;
+  message?: string;
+  onRetry?: () => void;
+}) {
+  const colors = useColors();
+  return (
+    <View style={[styles.workspaceCard, { borderColor: colors.border }]}>
+      <View style={styles.workspaceHeading}>
+        <SectionLabel>AUTHENTICATED WORKSPACE</SectionLabel>
+        {loading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+      </View>
+      {identity ? (
+        <>
+          <View style={styles.workspaceTitleRow}>
+            <Text numberOfLines={1} style={[styles.workspaceName, { color: colors.foreground }]}>{identity.workspace.name}</Text>
+            <Chip label={identity.workspace.mode.toUpperCase()} selected />
+          </View>
+          <Text style={[styles.workspaceUseCase, { color: colors.mutedForeground }]}>{identity.workspace.useCase}</Text>
+          <View style={styles.workspaceDetails}>
+            <Text style={[styles.workspaceDetail, { color: colors.foreground }]}>ACTOR <Text style={{ color: colors.mutedForeground }}>{identity.access.actorId}</Text></Text>
+            <Text style={[styles.workspaceDetail, { color: colors.foreground }]}>SCOPES <Text style={{ color: colors.mutedForeground }}>{identity.access.scopes.join(' · ') || 'none'}</Text></Text>
+          </View>
+        </>
+      ) : message ? (
+        <View style={styles.workspaceMessage}>
+          <Text style={[styles.workspaceUseCase, { color: colors.mutedForeground }]}>{message}</Text>
+          {onRetry ? <SecondaryButton label="Retry identity" onPress={onRetry} /> : null}
+        </View>
+      ) : (
+        <Text style={[styles.workspaceUseCase, { color: colors.mutedForeground }]}>Connect a relay to load workspace identity.</Text>
+      )}
     </View>
   );
 }
@@ -536,4 +578,12 @@ export const styles = StyleSheet.create({
   fieldPreviewImport: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1.5, paddingHorizontal: 8 },
   fieldPreviewImportText: { fontFamily: 'Inter_500Medium', fontSize: 11, letterSpacing: 0.4 },
   fieldPreviewStats: { flexDirection: 'row', flexWrap: 'wrap', borderLeftWidth: 1.5, borderTopWidth: 1.5, borderColor: 'transparent' },
+  workspaceCard: { marginTop: 12, padding: 10, borderWidth: 1.5, gap: 7 },
+  workspaceHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  workspaceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  workspaceName: { flex: 1, fontFamily: 'Inter_700Bold', fontSize: 17, lineHeight: 21 },
+  workspaceUseCase: { fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 17 },
+  workspaceDetails: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingTop: 3 },
+  workspaceDetail: { fontFamily: 'Inter_700Bold', fontSize: 9, letterSpacing: 0.4 },
+  workspaceMessage: { gap: 9, alignItems: 'flex-start' },
 });

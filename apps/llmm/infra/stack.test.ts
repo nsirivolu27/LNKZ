@@ -47,6 +47,13 @@ test("App Runner remains conditional and receives only runtime secrets", () => {
   assert.match(serviceJson, /ApplicationDatabaseSecret/);
   assert.match(serviceJson, /ApiKeySecret/);
   assert.doesNotMatch(serviceJson, /DatabaseSecretAttachment|migration-database/);
+  assert.match(serviceJson, /NODE_ENV/);
+  assert.match(serviceJson, /production/);
+  assert.match(serviceJson, /LNKZ_ALLOW_UNAUTHENTICATED/);
+  assert.match(serviceJson, /LNKZ_MCP_API_KEY_REQUIRED/);
+  assert.match(serviceJson, /"false"/);
+  assert.match(serviceJson, /"true"/);
+  assert.match(serviceJson, /LNKZ_AUTH_MODE/);
   assert.match(serviceJson, /DATABASE_SSL/);
   assert.match(serviceJson, /ALLOWED_HOSTS/);
   assert.match(serviceJson, /ALLOWED_ORIGINS/);

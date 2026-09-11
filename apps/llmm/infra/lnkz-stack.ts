@@ -177,8 +177,12 @@ export class LnkzStack extends Stack {
           imageConfiguration: {
             port: "3100",
             runtimeEnvironmentVariables: [
+              { name: "NODE_ENV", value: "production" },
               { name: "HOST", value: "0.0.0.0" },
               { name: "PORT", value: "3100" },
+              { name: "LNKZ_ALLOW_UNAUTHENTICATED", value: "false" },
+              { name: "LNKZ_MCP_API_KEY_REQUIRED", value: "true" },
+              { name: "LNKZ_AUTH_MODE", value: "static" },
               { name: "DATABASE_HOST", value: database.dbInstanceEndpointAddress },
               { name: "DATABASE_PORT", value: database.dbInstanceEndpointPort },
               { name: "DATABASE_NAME", value: "lnkz" },

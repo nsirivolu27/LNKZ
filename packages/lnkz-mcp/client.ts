@@ -19,6 +19,8 @@ import type {
   StoreStats,
   TargetTools,
   ConflictPair,
+  DatasetExportResponse,
+  WorkspaceResponse,
 } from "./contract.js";
 
 export interface LnkzClientLike {
@@ -56,6 +58,8 @@ export interface LnkzClientLike {
   graph(options: Record<string, unknown>): Promise<{ graph: ConversationGraph }>;
   publishTargets(): Promise<{ targets: TargetTools[]; errors: string[] }>;
   preparePublish(input: unknown): Promise<{ prepared: PreparedCall }>;
+  getWorkspace?: () => Promise<WorkspaceResponse>;
+  exportTrainingDataset?: (input: unknown) => Promise<DatasetExportResponse>;
 }
 
 export class LnkzApiError extends Error {
@@ -82,7 +86,16 @@ export class LnkzClient implements LnkzClientLike {
   }
 
   static fromEnv(env: NodeJS.ProcessEnv = process.env): LnkzClient {
-    return new LnkzClient(env.LNKZ_BASE_URL ?? "", env.LNKZ_API_KEY ?? "");
+    const profile = resolveProfile(env);
+    return new LnkzClient(profile.baseUrl, profile.apiKey);
+  }
+
+  getWorkspace() {
+    return this.json<WorkspaceResponse>("api/workspace");
+  }
+
+  exportTrainingDataset(input: unknown) {
+    return this.json<DatasetExportResponse>("api/datasets/export", { method: "POST", body: input });
   }
 
   saveConversation(input: ConversationInput) {
@@ -216,6 +229,51 @@ export class LnkzClient implements LnkzClientLike {
     if (!response.ok) throw new LnkzApiError(response.status, await errorMessage(response));
     return response;
   }
+}
+
+export interface LnkzProfile {
+  name: string;
+  baseUrl: string;
+  apiKeyEnv: string;
+  workspaceId: string;
+  apiKey: string;
+}
+
+/** Resolve a named profile without ever including the key in an error message. */
+export function resolveProfile(env: NodeJS.ProcessEnv = process.env): LnkzProfile {
+  if (!env.LNKZ_PROFILES_JSON) {
+    return {
+      name: "default",
+      baseUrl: env.LNKZ_BASE_URL ?? "",
+      apiKeyEnv: "LNKZ_API_KEY",
+      workspaceId: "",
+      apiKey: env.LNKZ_API_KEY ?? "",
+    };
+  }
+  let raw: unknown;
+  try { raw = JSON.parse(env.LNKZ_PROFILES_JSON); } catch { throw new Error("LNKZ_PROFILES_JSON must be valid JSON."); }
+  if (!Array.isArray(raw) || !raw.length) throw new Error("LNKZ_PROFILES_JSON must be a non-empty array.");
+  const profiles = raw.map((item, index) => {
+    if (!item || typeof item !== "object") throw new Error(`MCP profile ${index + 1} must be an object.`);
+    const value = item as Record<string, unknown>;
+    for (const key of ["name", "baseUrl", "apiKeyEnv", "workspaceId"]) {
+      if (typeof value[key] !== "string" || !value[key].trim()) throw new Error(`MCP profile ${index + 1} requires ${key}.`);
+    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value.apiKeyEnv as string)) throw new Error(`MCP profile ${index + 1} has an invalid apiKeyEnv.`);
+    return { name: value.name as string, baseUrl: value.baseUrl as string, apiKeyEnv: value.apiKeyEnv as string, workspaceId: value.workspaceId as string, apiKey: env[value.apiKeyEnv as string] ?? "" };
+  });
+  if (new Set(profiles.map((profile) => profile.name)).size !== profiles.length) throw new Error("MCP profile names must be unique.");
+  const selected = env.LNKZ_PROFILE ?? profiles[0]!.name;
+  const profile = profiles.find((item) => item.name === selected);
+  if (!profile) throw new Error(`Unknown LNKZ_PROFILE "${selected}".`);
+  if (!profile.apiKey) throw new Error(`Missing API key for MCP profile "${profile.name}".`);
+  return profile;
+}
+
+export async function verifyExpectedWorkspace(client: Pick<LnkzClientLike, "getWorkspace">, expectedWorkspaceId: string): Promise<void> {
+  if (!client.getWorkspace) throw new Error("LNKZ client cannot verify workspace identity.");
+  const result = await client.getWorkspace();
+  if (result.workspace.id !== expectedWorkspaceId) throw new Error("Configured MCP profile does not match the REST workspace.");
 }
 
 interface RequestOptions {

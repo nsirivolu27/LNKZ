@@ -123,6 +123,14 @@ export const auditSchema = z.object({
   limit: z.number().int().min(1).max(500).default(50),
 });
 
+export const datasetExportSchema = z.object({
+  conversationIds: z.array(z.string().uuid()).min(1).max(500),
+  acknowledgeRights: z.literal(true),
+  approvalTag: z.string().trim().min(1).max(160),
+  seed: z.string().trim().min(1).max(200).default("lnkz-v1"),
+  maxExamples: z.number().int().min(1).max(10_000).default(10_000),
+});
+
 export const membershipScopeSchema = z.enum(["mcp", "read", "write", "admin"]);
 
 const membershipIdentitySchema = z.object({

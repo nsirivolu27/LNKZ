@@ -28,6 +28,8 @@ ALLOWED_HOSTS=lnkz.example.com
 ALLOWED_ORIGINS=https://lnkz.example.com
 LNKZ_MCP_API_KEY_REQUIRED=true
 LNKZ_MCP_CONTEXT_SECRET=...
+NODE_ENV=production
+LNKZ_ALLOW_UNAUTHENTICATED=false
 ```
 
 Production fails during startup when authentication is not configured. Do not use
@@ -76,6 +78,15 @@ is unsafe, it reports the exact property and exits without serving traffic. Migr
 intentionally not part of the runtime start path. Multi-key workspace authorization requires
 Postgres and `LNKZ_AUTH_MODE=multi-key`.
 
+For the AWS reference deployment, run CDK from `apps/llmm` with AWS
+credentials and an explicit account/region. Synthesize and review the
+template before enabling App Runner; the service is conditional and is not
+deployed automatically. Push the reviewed image to the retained ECR
+repository, provide an image tag, and obtain operator approval before setting
+`EnableAppRunner=true`. The stack keeps RDS in private isolated subnets,
+allows PostgreSQL only from the App Runner security group, enables verified
+database TLS, and encrypts RDS/ECR/S3/secrets/logs with KMS.
+
 ## Health and rollout checks
 
 - `GET /health` returns the service, MCP path, auth status, connector configuration, and only the
@@ -92,6 +103,7 @@ Postgres and `LNKZ_AUTH_MODE=multi-key`.
 | `LNKZ_API_KEYS_JSON` | Multi-workspace static principals |
 | `LNKZ_AUTH_MODE` | `static` or `multi-key`; multi-key requires Postgres |
 | `LNKZ_ALLOW_UNAUTHENTICATED` | Explicit local-development escape hatch |
+| `NODE_ENV` | Set to `production` for deployed instances; authentication fails closed |
 | `LNKZ_MCP_PATH` | MCP HTTP path, default `/mcp` |
 | `LNKZ_MCP_API_KEY_REQUIRED` | Require a key for MCP requests |
 | `LNKZ_MCP_CONTEXT_SECRET` | Shared HMAC secret for trusted multi-node MCP context forwarding; minimum 32 bytes |
@@ -106,7 +118,10 @@ Postgres and `LNKZ_AUTH_MODE=multi-key`.
 | `SLACK_*`, `JIRA_*`, `FIGMA_*`, `DOCUMENT_FEED_*` | Optional read-only connectors |
 
 All connector credentials stay in environment configuration and are never passed as MCP tool
-arguments or persisted in conversation content by the relay itself.
+arguments or persisted in conversation content by the relay itself. They are
+instance-scoped: a connector configured on one deployment is not available to
+another instance or automatically isolated per workspace. Treat connector
+access as an operator-managed security boundary.
 
 ## Replit preview configuration
 

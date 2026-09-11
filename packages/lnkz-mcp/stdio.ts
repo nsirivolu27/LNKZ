@@ -1,8 +1,11 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { LnkzClient } from "./client.js";
+import { LnkzClient, resolveProfile, verifyExpectedWorkspace } from "./client.js";
 import { createLnkzMcpServer } from "./mcp.js";
 
-const server = createLnkzMcpServer(LnkzClient.fromEnv());
+const profile = resolveProfile();
+const client = new LnkzClient(profile.baseUrl, profile.apiKey);
+if (profile.workspaceId) await verifyExpectedWorkspace(client, profile.workspaceId);
+const server = createLnkzMcpServer(client);
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, async () => {

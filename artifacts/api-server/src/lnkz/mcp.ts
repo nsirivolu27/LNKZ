@@ -73,6 +73,8 @@ export function createLnkzMcpServer(
 
   // ---------------------------------------------------------------- conversations
 
+  // @ts-ignore The MCP SDK's recursive schema inference exceeds TypeScript's
+  // instantiation limit in the production config; runtime input is validated by Zod.
   server.registerTool(
     "save_conversation",
     {

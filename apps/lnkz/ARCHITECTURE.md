@@ -37,8 +37,20 @@ takes precedence over trusted-node forwarding. SQLite is single-tenant;
 multi-key workspaces require Postgres. Forwarding protocol details are owned
 by [MCP.md](MCP.md#multi-node-context-forwarding).
 
+Workspace definitions (`LNKZ_WORKSPACES_JSON`) describe personal or team
+workspaces and their dataset policy. In multi-key mode,
+`LNKZ_API_KEYS_JSON` maps a bearer key to one workspace, actor, and scopes.
+Callers cannot choose a workspace with a plain header; the authenticated
+principal (or verified MCP forwarding context) is authoritative. Dataset
+export is a curation boundary: it redacts and deterministically splits
+explicitly selected conversations, but never trains a model.
+
 ## Operating boundary
 
 One process and one database are enough. [DEPLOY.md](DEPLOY.md) owns environment
 variables, migrations, startup, health checks and backups. [ROADMAP.md](ROADMAP.md)
 tracks unfinished operational and transfer work.
+
+The optional external connectors are configured per LNKZ instance rather than
+per portable conversation or MCP profile. Their credentials are not exposed
+as tool arguments and are not automatically shared between instances.

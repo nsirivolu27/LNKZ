@@ -37,6 +37,7 @@ import {
   listConversationsSchema,
   searchConversationsSchema,
   updateMembershipSchema,
+  datasetExportSchema,
 } from "./schemas.js";
 import { aggregateSearch } from "./search.js";
 import { createRuntime } from "./runtime.js";
@@ -44,6 +45,8 @@ import { MembershipConflictError, PostgresConversationStore, resolveDatabaseUrl 
 import type { PostgresRateLimiter } from "./store/rate-limit.js";
 import type { Conversation } from "./types.js";
 import { ZodError } from "zod";
+import { currentRequestContext } from "./context.js";
+import { exportDataset } from "./dataset.js";
 import { ManagedAuthService } from "./managed-auth.js";
 import { claudeDestinationStatus } from "./connectors/claude-space.js";
 
@@ -190,6 +193,36 @@ app.get("/api/destinations/claude", requireApiKey, (_request, response) => {
 
 app.get("/api/stats", requireApiKey, async (_request, response) => {
   response.json({ stats: await store.stats() });
+});
+
+app.get("/api/workspace", requireApiKey, (_request, response) => {
+  const context = currentRequestContext();
+  if (!context) { response.status(401).json({ error: "Authenticated workspace context is required." }); return; }
+  const workspace = config.workspaces.find((candidate) => candidate.id === context.workspaceId);
+  if (!workspace) { response.status(403).json({ error: "Workspace is not configured." }); return; }
+  response.json({ workspace, access: { actorId: context.actorId, scopes: [...context.scopes].sort() } });
+});
+
+const requireDatasetAdmin = (request: express.Request, response: express.Response, next: express.NextFunction): void => {
+  authenticate(request, response, () => requireScope("admin")(request, response, next));
+};
+
+app.post("/api/datasets/export", requireDatasetAdmin, apiLimiter, sharedApiLimiter, async (request, response) => {
+  try {
+    const input = datasetExportSchema.parse(request.body);
+    const context = currentRequestContext();
+    const workspace = context && config.workspaces.find((candidate) => candidate.id === context.workspaceId);
+    if (!context || !workspace) { response.status(403).json({ error: "Workspace is not configured." }); return; }
+    if (!workspace.datasets.enabled) { response.status(403).json({ error: "Dataset export is disabled for this workspace." }); return; }
+    if (input.approvalTag !== workspace.datasets.approvalTag) { response.status(403).json({ error: "The required dataset approval tag is missing or invalid." }); return; }
+    const conversations: Conversation[] = [];
+    for (const id of input.conversationIds) {
+      const conversation = await store.get(id);
+      if (!conversation) { response.status(422).json({ error: `Conversation ${id} is not available in this workspace.` }); return; }
+      conversations.push(conversation);
+    }
+    response.json(exportDataset(conversations, context.workspaceId, input));
+  } catch (error) { badRequest(response, error); }
 });
 
 app.get("/api/events", requireApiKey, async (request, response) => {

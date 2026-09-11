@@ -181,6 +181,36 @@ export interface StoreStats {
   events: number;
 }
 
+export interface Workspace {
+  id: string;
+  name: string;
+  mode: "personal" | "team" | string;
+  useCase: string;
+  datasets: { enabled: boolean; approvalTag?: string };
+}
+
+export interface WorkspaceResponse {
+  workspace: Workspace;
+  access: { actorId: string; scopes: string[] };
+}
+
+export interface DatasetExportResponse {
+  manifest: {
+    format: string;
+    datasetId: string;
+    workspaceId: string;
+    seed: string;
+    examples: { train: number; validation: number; duplicates: number };
+    sources: unknown[];
+    skipped: unknown[];
+    redactions: Record<string, number>;
+    checksums: Record<string, string>;
+    limitations: string[];
+  };
+  trainJsonl: string;
+  validationJsonl: string;
+}
+
 export interface AuditEvent {
   id: string;
   at: string;
@@ -319,6 +349,12 @@ export const duplicateSchema = z.object({
   threshold: z.number().min(0.2).max(0.99).default(0.6),
 });
 export const auditSchema = z.object({ limit: z.number().int().min(1).max(500).default(50) });
+export const datasetExportSchema = z.object({
+  conversationIds: z.array(z.string().uuid()).min(1).max(500),
+  acknowledgeRights: z.literal(true),
+  approvalTag: z.string().trim().min(1).max(200),
+  seed: z.string().trim().min(1).max(200).optional(),
+});
 export const EXPORT_FORMATS = [
   "markdown", "markdown-brief", "openai", "chatgpt", "claude", "lnkz", "latex", "text",
 ] as const;

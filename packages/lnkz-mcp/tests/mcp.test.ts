@@ -127,6 +127,14 @@ function stubClient(calls: string[]): LnkzClientLike {
         sent: false,
       },
     }),
+    getWorkspace: async () => hit("getWorkspace", {
+      workspace: { id: "00000000-0000-4000-8000-000000000001", name: "Test", mode: "personal", useCase: "Testing", datasets: { enabled: true } },
+      access: { actorId: "test", scopes: ["mcp", "admin"] },
+    }),
+    exportTrainingDataset: async () => hit("exportTrainingDataset", {
+      manifest: { format: "lnkz.dataset.v1", datasetId: "dataset-1", workspaceId: "00000000-0000-4000-8000-000000000001", seed: "test", examples: { train: 1, validation: 0, duplicates: 0 }, sources: [], skipped: [], redactions: {}, checksums: {}, limitations: [] },
+      trainJsonl: "", validationJsonl: "",
+    }),
   };
 }
 
@@ -155,6 +163,8 @@ const toolCases: { name: string; input: Record<string, unknown>; call: string }[
   ["list_connectors", {}, "listConnectors"],
   ["workspace_stats", {}, "stats"],
   ["audit_log", {}, "audit"],
+  ["get_workspace", {}, "getWorkspace"],
+  ["export_training_dataset", { conversationIds: [conversationId], acknowledgeRights: true, approvalTag: "approved" }, "exportTrainingDataset"],
 ].map(([name, input, call]) => ({ name, input, call })) as { name: string; input: Record<string, unknown>; call: string }[];
 
 for (const item of toolCases) {
@@ -189,7 +199,7 @@ test("publishes the preserved tool, resource, template, and prompt names", async
   assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), toolCases.map((item) => item.name).sort());
   const resources = await client.listResources();
   assert.deepEqual(resources.resources.map((resource) => resource.uri).sort(), [
-    "lnkz://connectors", "lnkz://conversations", "lnkz://graph", "lnkz://stats",
+    "lnkz://connectors", "lnkz://conversations", "lnkz://graph", "lnkz://stats", "lnkz://workspace",
   ]);
   const templates = await client.listResourceTemplates();
   assert.deepEqual(templates.resourceTemplates.map((resource) => resource.uriTemplate), ["lnkz://conversation/{id}"]);
@@ -214,6 +224,7 @@ test("resources are served through the REST client", async (t) => {
   await client.readResource({ uri: "lnkz://stats" });
   await client.readResource({ uri: "lnkz://conversations" });
   await client.readResource({ uri: "lnkz://graph" });
+  await client.readResource({ uri: "lnkz://workspace" });
   await client.readResource({ uri: `lnkz://conversation/${conversationId}` });
-  assert.deepEqual(calls, ["listConnectors", "stats", "listConversations", "graph", "getConversation"]);
+  assert.deepEqual(calls, ["listConnectors", "stats", "listConversations", "graph", "getWorkspace", "getConversation"]);
 });

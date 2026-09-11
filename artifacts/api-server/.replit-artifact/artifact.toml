@@ -29,6 +29,7 @@ args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 
 [services.production.run.env]
 PORT = "8080"
+HOST = "0.0.0.0"
 NODE_ENV = "production"
 LNKZ_WEB_DIST_DIR = "artifacts/api-server/web-dist"
 

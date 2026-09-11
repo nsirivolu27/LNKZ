@@ -160,6 +160,25 @@ export interface StoreStats {
   events: number;
 }
 
+export type WorkspaceMode = 'personal' | 'team';
+
+export interface WorkspaceIdentity {
+  workspace: {
+    id: string;
+    name: string;
+    mode: WorkspaceMode;
+    useCase: string;
+    datasets: {
+      enabled: boolean;
+      approvalTag?: string;
+    };
+  };
+  access: {
+    actorId: string;
+    scopes: string[];
+  };
+}
+
 export interface ConnectorStatus {
   id: string;
   label: string;
@@ -289,11 +308,16 @@ export class LnkzApiClient {
   async validateConnection(signal?: AbortSignal): Promise<HealthResponse> {
     const health = await this.health(signal);
     await this.stats(signal);
+    await this.workspace(signal);
     return health;
   }
 
   stats(signal?: AbortSignal) {
     return this.request<{ stats: StoreStats }>('/api/stats', { signal });
+  }
+
+  workspace(signal?: AbortSignal) {
+    return this.request<WorkspaceIdentity>('/api/workspace', { signal });
   }
 
   connectors(signal?: AbortSignal) {
