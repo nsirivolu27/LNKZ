@@ -71,6 +71,56 @@ test("structured database configuration validates and encodes credentials", () =
   }
 });
 
+test("SQLite to Postgres migration CLI exits nonzero and keeps source data out of errors", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "lnkz-postgres-migration-cli-"));
+  const sqlitePath = join(directory, "source.db");
+  const privateConversationContent = "private migration conversation content";
+  const sourceStore = new SqliteConversationStore(sqlitePath);
+  try {
+    await sourceStore.ensureInstanceIdentity("CLI migration test");
+    await sourceStore.save({
+      id: "migration-cli-private-conversation",
+      title: "Private migration conversation",
+      source: { provider: "test" },
+      participants: ["test"],
+      messages: [{ role: "user", content: privateConversationContent }],
+    });
+  } finally {
+    sourceStore.close();
+  }
+
+  try {
+    const environment = { ...process.env };
+    delete environment.DATABASE_URL;
+    delete environment.LNKZ_DB_FILE;
+    const child = spawn(
+      process.execPath,
+      [".testbuild/src/lnkz/store/migrate-sqlite.js", "--sqlite", sqlitePath],
+      {
+        cwd: process.cwd(),
+        env: environment,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout = `${stdout}${chunk}`;
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = `${stderr}${chunk}`;
+    });
+
+    const exit = await waitForExit(child);
+    assert.equal(exit.code, 1, `migration CLI exited unexpectedly: ${stdout}\n${stderr}`);
+    assert.match(stderr, /\[db\] SQLite migration failed: --database or DATABASE_URL is required/);
+    assert.doesNotMatch(`${stdout}\n${stderr}`, new RegExp(escapeRegExp(privateConversationContent)));
+    assert.doesNotMatch(stderr, /PRIVATE KEY/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 afterEach(async () => {
   if (enabled) await clearPostgresData();
 });
@@ -1090,7 +1140,7 @@ async function waitForExit(child: ReturnType<typeof spawn>): Promise<{ code: num
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error("unsafe Postgres role process did not exit after the preflight failure"));
+      reject(new Error("child process did not exit after the expected failure"));
     }, 10_000);
     child.once("error", (error) => {
       clearTimeout(timeout);

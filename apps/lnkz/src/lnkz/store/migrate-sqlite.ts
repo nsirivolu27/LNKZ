@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Pool, type PoolClient } from "pg";
 import { DEFAULT_WORKSPACE_ID } from "./postgres.js";
 
@@ -276,7 +277,7 @@ function postgresSsl(): false | { rejectUnauthorized: boolean } {
   return process.env.DATABASE_SSL === "false" ? false : { rejectUnauthorized: true };
 }
 
-if (process.argv[1]?.endsWith("migrate-sqlite.ts")) {
+if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
   migrateSqliteToPostgres().catch((error) => {
     console.error(`[db] SQLite migration failed: ${error instanceof Error ? error.message : error}`);
     process.exitCode = 1;
