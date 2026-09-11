@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { CredentialStorage, readCredentials, removeCredentials, writeCredentials } from '@/services/credential-store';
 import { updateConversationSelection } from '@/services/context-selection';
@@ -8,6 +9,13 @@ import { requestBrowserPreviewSession } from '@/services/config';
 import { redactSensitiveText } from '@/services/redaction';
 
 const originalFetch = globalThis.fetch;
+
+function readMobileSource(relativePath: string): string {
+  return readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
+}
+
+const headerSource = readMobileSource('components/ui.tsx');
+const librarySource = readMobileSource('app/(tabs)/index.tsx');
 
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   globalThis.fetch = (async (input, init) => handler(String(input), init)) as typeof fetch;
@@ -236,6 +244,46 @@ test('context selection is stable, deduplicated, and removable', () => {
   assert.deepEqual(first, ['conversation-1']);
   assert.equal(updateConversationSelection(first, 'conversation-1', true), first);
   assert.deepEqual(updateConversationSelection(first, 'conversation-1', false), []);
+});
+
+test('shared handoff header keeps its accessibility labels and action roles', () => {
+  for (const label of ['THE THREAD', 'THE PACKET', 'THE DESTINATION', 'THE HANDOFF']) {
+    assert.ok(headerSource.includes(`label: '${label}'`), `missing shared navigation label: ${label}`);
+  }
+  assert.match(headerSource, /accessibilityRole="button"/);
+  assert.match(headerSource, /accessibilityLabel=\{item\.label\}/);
+  assert.match(headerSource, /accessibilityLabel="Send context"/);
+});
+
+test('library and secondary-route headers preserve their navigation destinations', () => {
+  const routeBindings = [
+    ['onThread', '/(tabs)'],
+    ['onPacket', '/build'],
+    ['onHandoff', '/handoffs'],
+    ['onSettings', '/settings'],
+    ['onSend', '/import'],
+  ] as const;
+
+  for (const [callback, route] of routeBindings) {
+    const binding = `${callback}={() => router.push('${route}')}`;
+    assert.ok(headerSource.includes(binding), `secondary-route header lost ${callback} route ${route}`);
+    assert.ok(librarySource.includes(binding), `library header lost ${callback} route ${route}`);
+  }
+});
+
+test('secondary mobile routes continue to use the shared navigation header', () => {
+  const secondaryRoutes = [
+    'app/import.tsx',
+    'app/handoff/new.tsx',
+    'app/conversations/[id].tsx',
+    'app/(tabs)/build.tsx',
+    'app/(tabs)/handoffs.tsx',
+    'app/(tabs)/settings.tsx',
+  ];
+
+  for (const route of secondaryRoutes) {
+    assert.match(readMobileSource(route), /<ScreenHeader(?:\s|>)/, `${route} must render ScreenHeader`);
+  }
 });
 
 test('handoff state distinguishes active, expired, exhausted, and revoked links', () => {
