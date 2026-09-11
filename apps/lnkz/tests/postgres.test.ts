@@ -843,6 +843,70 @@ test("SQLite to Postgres migration reports an imported instance identity", { ski
   }
 });
 
+test("SQLite to Postgres migration reports an empty source without identity or content", { skip: !enabled }, async () => {
+  await runPostgresMigrations(migrationUrl);
+  await clearPostgresData();
+
+  const directory = await mkdtemp(join(tmpdir(), "lnkz-postgres-migration-empty-"));
+  const sqlitePath = join(directory, "source.db");
+  const sourceStore = new SqliteConversationStore(sqlitePath);
+  sourceStore.close();
+
+  try {
+    const migrationOutput: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => migrationOutput.push(args.map(String).join(" "));
+    try {
+      await migrateSqliteToPostgres({ sqlite: sqlitePath, database: appUrl, dryRun: false });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const sourceReport = JSON.parse(migrationOutput[0] ?? "{}") as {
+      counts?: {
+        conversations?: number;
+        messages?: number;
+        handoffs?: number;
+        events?: number;
+        hasInstanceIdentity?: boolean;
+      };
+    };
+    assert.deepEqual(sourceReport.counts, {
+      conversations: 0,
+      messages: 0,
+      handoffs: 0,
+      events: 0,
+      hasInstanceIdentity: false,
+    });
+
+    const report = JSON.parse(migrationOutput.at(-1) ?? "{}") as {
+      migrated?: {
+        conversations?: number;
+        messages?: number;
+        handoffs?: number;
+        events?: number;
+        hasInstanceIdentity?: boolean;
+      };
+      instanceIdentity?: {
+        sourceIdentityImported?: boolean;
+        existingTargetIdentityPreserved?: boolean;
+      };
+    };
+    assert.deepEqual(report.migrated, sourceReport.counts);
+    assert.deepEqual(report.instanceIdentity, {
+      sourceIdentityImported: false,
+      existingTargetIdentityPreserved: false,
+    });
+
+    const publicOutput = migrationOutput.join("\n");
+    assert.doesNotMatch(publicOutput, /PRIVATE KEY/);
+    assert.doesNotMatch(publicOutput, /conversation content/i);
+  } finally {
+    await clearPostgresData();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("SQLite to Postgres migration does not replace an existing target identity", { skip: !enabled }, async () => {
   await runPostgresMigrations(migrationUrl);
   await clearPostgresIdentity();
