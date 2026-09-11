@@ -791,16 +791,29 @@ function postgresSsl(): false | { rejectUnauthorized: boolean } {
 }
 
 export function resolveDatabaseUrl(): string | undefined {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  const secret = process.env.DATABASE_SECRET_JSON;
-  if (!secret || !process.env.DATABASE_HOST) return undefined;
+  const directUrl = process.env.DATABASE_URL?.trim();
+  if (directUrl) return directUrl;
+  const secret = process.env.DATABASE_SECRET_JSON?.trim();
+  const host = process.env.DATABASE_HOST?.trim();
+  if (!secret && !host) return undefined;
+  if (!secret || !host) {
+    throw new Error("DATABASE_HOST and DATABASE_SECRET_JSON must be configured together; refusing to fall back to SQLite.");
+  }
   try {
     const credentials = JSON.parse(secret) as { username?: string; password?: string };
-    if (!credentials.username || !credentials.password) return undefined;
-    const port = process.env.DATABASE_PORT ?? "5432";
-    const database = process.env.DATABASE_NAME ?? "lnkz";
-    return `postgresql://${encodeURIComponent(credentials.username)}:${encodeURIComponent(credentials.password)}@${process.env.DATABASE_HOST}:${port}/${database}`;
-  } catch {
-    return undefined;
+    if (!credentials.username || !credentials.password) {
+      throw new Error("DATABASE_SECRET_JSON must contain non-empty username and password fields.");
+    }
+    const port = process.env.DATABASE_PORT?.trim() || "5432";
+    if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65_535) {
+      throw new Error("DATABASE_PORT must be an integer from 1 to 65535.");
+    }
+    const database = process.env.DATABASE_NAME?.trim() || "lnkz";
+    return `postgresql://${encodeURIComponent(credentials.username)}:${encodeURIComponent(credentials.password)}@${host}:${port}/${encodeURIComponent(database)}`;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error("DATABASE_SECRET_JSON must be valid JSON with username and password fields.");
+    }
+    throw error;
   }
 }

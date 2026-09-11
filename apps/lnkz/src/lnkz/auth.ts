@@ -120,6 +120,26 @@ export function createOriginValidator(allowed: string[]): (request: Request, res
   };
 }
 
+export function createCorsMiddleware(allowed: string[]): (request: Request, response: Response, next: NextFunction) => void {
+  return (request, response, next) => {
+    const origin = request.header("origin");
+    if (!origin || !isOriginAllowed(origin, request.header("host"), allowed)) {
+      next();
+      return;
+    }
+    response.setHeader("access-control-allow-origin", origin);
+    response.setHeader("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
+    response.setHeader("access-control-allow-headers", "Authorization,Content-Type");
+    response.setHeader("access-control-max-age", "600");
+    response.append("vary", "Origin");
+    if (request.method === "OPTIONS") {
+      response.status(204).end();
+      return;
+    }
+    next();
+  };
+}
+
 export function securityHeaders(request: Request, response: Response, next: NextFunction): void {
   response.setHeader("x-content-type-options", "nosniff");
   response.setHeader("x-frame-options", "DENY");

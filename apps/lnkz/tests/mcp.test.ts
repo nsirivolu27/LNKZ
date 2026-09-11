@@ -19,13 +19,21 @@ test("local MCP preserves tool names and lnkz resource URIs", async (t) => {
   });
 
   const tools = await client.listTools();
+  assert.equal(tools.tools.length, 25);
   assert.ok(tools.tools.some((tool) => tool.name === "save_conversation"));
   assert.ok(tools.tools.some((tool) => tool.name === "list_publish_targets"));
   assert.ok(tools.tools.some((tool) => tool.name === "prepare_publish"));
 
   const resources = await client.listResources();
+  assert.equal(resources.resources.length, 5);
   assert.deepEqual(
     resources.resources.map((resource) => resource.uri).sort(),
     ["lnkz://connectors", "lnkz://conversations", "lnkz://graph", "lnkz://stats", "lnkz://transfers"],
+  );
+  const prompts = await client.listPrompts();
+  assert.equal(prompts.prompts.length, 4);
+  assert.deepEqual(
+    prompts.prompts.map((prompt) => prompt.name).sort(),
+    ["continue_shared_conversation", "prepare_handoff", "reconcile_conflicts", "research_brief"],
   );
 });

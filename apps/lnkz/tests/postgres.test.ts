@@ -13,6 +13,7 @@ import {
   assertPostgresRuntimeRole,
   PostgresConversationStore,
   DEFAULT_WORKSPACE_ID,
+  resolveDatabaseUrl,
 } from "../src/lnkz/store/postgres.js";
 import { runPostgresMigrations } from "../src/lnkz/store/migrate.js";
 import { SqliteConversationStore } from "../src/lnkz/store/sqlite.js";
@@ -24,6 +25,51 @@ const unsafeOwnerUrl = process.env.LNKZ_POSTGRES_UNSAFE_OWNER_URL;
 const bypassRlsUrl = process.env.LNKZ_POSTGRES_BYPASS_URL;
 const enabled = Boolean(migrationUrl && appUrl);
 const unsafeRolesEnabled = Boolean(migrationUrl && unsafeOwnerUrl && bypassRlsUrl);
+
+test("partial structured database configuration refuses a SQLite fallback", () => {
+  const previous = {
+    DATABASE_URL: process.env.DATABASE_URL,
+    DATABASE_HOST: process.env.DATABASE_HOST,
+    DATABASE_SECRET_JSON: process.env.DATABASE_SECRET_JSON,
+  };
+  try {
+    delete process.env.DATABASE_URL;
+    process.env.DATABASE_HOST = "database.example";
+    delete process.env.DATABASE_SECRET_JSON;
+    assert.throws(() => resolveDatabaseUrl(), /must be configured together/);
+
+    delete process.env.DATABASE_HOST;
+    process.env.DATABASE_SECRET_JSON = JSON.stringify({ username: "lnkz", password: "secret" });
+    assert.throws(() => resolveDatabaseUrl(), /must be configured together/);
+  } finally {
+    restoreEnvironment(previous);
+  }
+});
+
+test("structured database configuration validates and encodes credentials", () => {
+  const previous = {
+    DATABASE_URL: process.env.DATABASE_URL,
+    DATABASE_HOST: process.env.DATABASE_HOST,
+    DATABASE_SECRET_JSON: process.env.DATABASE_SECRET_JSON,
+    DATABASE_PORT: process.env.DATABASE_PORT,
+    DATABASE_NAME: process.env.DATABASE_NAME,
+  };
+  try {
+    delete process.env.DATABASE_URL;
+    process.env.DATABASE_HOST = "database.example";
+    process.env.DATABASE_SECRET_JSON = JSON.stringify({ username: "lnkz user", password: "p@ss/word" });
+    process.env.DATABASE_PORT = "5432";
+    process.env.DATABASE_NAME = "lnkz data";
+    assert.equal(
+      resolveDatabaseUrl(),
+      "postgresql://lnkz%20user:p%40ss%2Fword@database.example:5432/lnkz%20data",
+    );
+    process.env.DATABASE_SECRET_JSON = "{invalid";
+    assert.throws(() => resolveDatabaseUrl(), /must be valid JSON/);
+  } finally {
+    restoreEnvironment(previous);
+  }
+});
 
 afterEach(async () => {
   if (enabled) await clearPostgresData();
@@ -1007,5 +1053,12 @@ async function clearPostgresData(): Promise<void> {
     await pool.query("delete from instance_identity");
   } finally {
     await pool.end();
+  }
+}
+
+function restoreEnvironment(values: Record<string, string | undefined>): void {
+  for (const [name, value] of Object.entries(values)) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
   }
 }

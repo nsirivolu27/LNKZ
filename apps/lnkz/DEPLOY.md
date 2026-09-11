@@ -52,6 +52,12 @@ Use two distinct Postgres roles:
   `pnpm start`. Set its name in `LNKZ_DATABASE_APP_ROLE` only while running migrations so the
   migration command can grant it the required table permissions.
 
+App Runner may provide `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, and
+`DATABASE_SECRET_JSON` instead of `DATABASE_URL`. `DATABASE_HOST` and
+`DATABASE_SECRET_JSON` are an inseparable pair: incomplete or malformed configuration fails
+startup rather than silently selecting SQLite. The production image includes the AWS RDS global
+CA bundle and enables verified TLS by default when `DATABASE_SSL` is not `false`.
+
 The migration command refuses to run if the connected `DATABASE_URL` role is the same as
 `LNKZ_DATABASE_APP_ROLE`.
 
@@ -91,9 +97,40 @@ Postgres and `LNKZ_AUTH_MODE=multi-key`.
 | `LNKZ_MCP_CONTEXT_SECRET` | Shared HMAC secret for trusted multi-node MCP context forwarding; minimum 32 bytes |
 | `LNKZ_INSTANCE_NAME` | Operator-facing display name published in the public instance identity document |
 | `DATABASE_URL` | Switch from SQLite to Postgres |
+| `DATABASE_HOST` | PostgreSQL hostname used with `DATABASE_SECRET_JSON` |
+| `DATABASE_SECRET_JSON` | JSON object containing the runtime database `username` and `password` |
+| `DATABASE_PORT` / `DATABASE_NAME` | Structured PostgreSQL connection values; defaults `5432` / `lnkz` |
+| `DATABASE_SSL` | Set `false` only for local Postgres; production defaults to verified TLS |
 | `LNKZ_DATABASE_APP_ROLE` | Runtime-only Postgres role granted by `pnpm db:migrate`; do not use it as the migration connection role |
 | `LNKZ_MCP_TARGETS` | Downstream MCP targets for publish preparation |
 | `SLACK_*`, `JIRA_*`, `FIGMA_*`, `DOCUMENT_FEED_*` | Optional read-only connectors |
 
 All connector credentials stay in environment configuration and are never passed as MCP tool
 arguments or persisted in conversation content by the relay itself.
+
+## Replit preview configuration
+
+Configure backend values as secrets or private environment variables; do not commit their values:
+
+```text
+LNKZ_API_KEY
+DATABASE_SECRET_JSON
+DATABASE_HOST
+DATABASE_PORT
+DATABASE_NAME
+DATABASE_SSL=true
+LNKZ_POSTGRES_WORKSPACE_ID
+ALLOWED_HOSTS=<exact backend hostname>
+ALLOWED_ORIGINS=<exact Replit or Expo browser origin>
+LNKZ_PUBLIC_BASE_URL=<public backend URL>
+```
+
+The mobile artifact needs only the public relay location:
+
+```text
+EXPO_PUBLIC_LNKZ_API_URL=<public backend URL>
+```
+
+Never place `LNKZ_API_KEY`, database credentials, handoff tokens, or MCP context secrets in an
+`EXPO_PUBLIC_*` variable. Native credentials belong in secure device storage; the web preview must
+keep temporary credentials in browser memory rather than a public bundle or URL.

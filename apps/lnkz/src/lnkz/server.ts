@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import {
   createApiKeyMiddleware,
+  createCorsMiddleware,
   createOriginValidator,
   rateLimit,
   requireScope,
@@ -88,6 +89,7 @@ app.disable("x-powered-by");
 app.use(securityHeaders);
 app.use(express.json({ limit: config.maxBody }));
 app.use(createOriginValidator(config.allowedOrigins));
+app.use(createCorsMiddleware(config.allowedOrigins));
 app.use((request, response, next) => {
   if (request.path === "/health" || request.path === config.mcp.path || request.path.startsWith("/api/")) {
     response.setHeader("cache-control", "no-store");

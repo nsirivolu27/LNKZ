@@ -1,0 +1,9 @@
+node_modules
+dist
+.testbuild
+.data
+*.db
+*.db-*
+.env
+.git
+.github

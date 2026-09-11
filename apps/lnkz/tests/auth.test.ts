@@ -1,12 +1,46 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isOriginAllowed, rateLimit, withLoopback } from "../src/lnkz/auth.js";
+import { createCorsMiddleware, isOriginAllowed, rateLimit, withLoopback } from "../src/lnkz/auth.js";
 
 test("same-origin web assets work without weakening the origin allowlist", () => {
   assert.equal(isOriginAllowed("http://127.0.0.1:3100", "127.0.0.1:3100", []), true);
   assert.equal(isOriginAllowed("https://app.example", "lnkz.example", ["https://app.example"]), true);
   assert.equal(isOriginAllowed("https://evil.example", "lnkz.example", ["https://app.example"]), false);
   assert.equal(isOriginAllowed("not a url", "lnkz.example", []), false);
+});
+
+test("CORS preflight reflects only an exact allowed origin", () => {
+  const headers: Record<string, string> = {};
+  let ended = false;
+  const response = {
+    setHeader(name: string, value: string | number) { headers[name.toLowerCase()] = String(value); return this; },
+    append() { return this; },
+    status(code: number) { assert.equal(code, 204); return this; },
+    end() { ended = true; return this; },
+  };
+  const request = {
+    method: "OPTIONS",
+    header(name: string) {
+      return name.toLowerCase() === "origin" ? "https://mobile.example" : "relay.example";
+    },
+  };
+  createCorsMiddleware(["https://mobile.example"])(request as never, response as never, () => {
+    throw new Error("an allowed preflight should end before route handling");
+  });
+  assert.equal(ended, true);
+  assert.equal(headers["access-control-allow-origin"], "https://mobile.example");
+  assert.equal(headers["access-control-allow-headers"], "Authorization,Content-Type");
+
+  const rejectedHeaders: Record<string, string> = {};
+  let continued = false;
+  createCorsMiddleware(["https://mobile.example"])({
+    method: "GET",
+    header: (name: string) => name.toLowerCase() === "origin" ? "https://evil.example" : "relay.example",
+  } as never, {
+    setHeader: (name: string, value: string) => { rejectedHeaders[name.toLowerCase()] = value; },
+  } as never, () => { continued = true; });
+  assert.equal(continued, true);
+  assert.equal(rejectedHeaders["access-control-allow-origin"], undefined);
 });
 
 test("the rate limiter allows a burst then refuses, and reports retry-after", () => {

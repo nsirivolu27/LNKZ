@@ -10,6 +10,7 @@ dist/
 .vscode/
 .DS_Store
 node_modules/
+cdk.out/
 .data/
 lnkz-relay/.data/
 backend/media/

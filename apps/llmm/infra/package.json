@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "synth": "cdk synth",
+    "test": "node --import tsx --test stack.test.ts",
     "diff": "cdk diff"
   },
   "dependencies": {

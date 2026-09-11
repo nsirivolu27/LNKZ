@@ -158,7 +158,7 @@ export class LnkzStack extends Stack {
     });
 
     const autoScaling = new apprunner.CfnAutoScalingConfiguration(this, "AutoScaling", {
-      autoScalingConfigurationName: `${this.stackName}-three-instance-cap`,
+      autoScalingConfigurationName: `${this.stackName}-3-instance-cap`,
       maxConcurrency: 80,
       maxSize: 3,
       minSize: 1,
@@ -231,6 +231,9 @@ export class LnkzStack extends Stack {
     new cdk.CfnOutput(this, "DatabaseEndpoint", { value: database.dbInstanceEndpointAddress });
     new cdk.CfnOutput(this, "ExportBucketName", { value: exportBucket.bucketName });
     new cdk.CfnOutput(this, "VpcId", { value: vpc.vpcId });
-    new cdk.CfnOutput(this, "ServiceUrl", { value: service.attrServiceUrl });
+    new cdk.CfnOutput(this, "ServiceUrl", {
+      value: service.attrServiceUrl,
+      condition: serviceCondition,
+    });
   }
 }
