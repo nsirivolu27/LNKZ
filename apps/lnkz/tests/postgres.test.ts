@@ -238,6 +238,113 @@ test("Postgres migrations roll back a failed migration statement and can be retr
   }
 });
 
+test("Postgres migrations preserve committed versions when a later migration fails", { skip: !enabled }, async () => {
+  await resetPostgresSchema();
+  await runPostgresMigrations(migrationUrl);
+
+  const migrationPool = new Pool({ connectionString: migrationUrl, ssl: postgresSsl(), max: 1 });
+  try {
+    await migrationPool.query("delete from schema_migrations where version = 3");
+    await migrationPool.query("drop table instance_identity");
+    await migrationPool.query(`
+      create or replace function lnkz_test_fail_on_instance_identity()
+      returns event_trigger
+      language plpgsql
+      as $$
+      declare
+        command record;
+      begin
+        for command in select * from pg_event_trigger_ddl_commands() loop
+          if command.object_identity = 'public.instance_identity' then
+            raise exception 'intentional later migration SQL failure for rollback coverage';
+          end if;
+        end loop;
+      end;
+      $$
+    `);
+    await migrationPool.query(`
+      create event trigger lnkz_test_fail_on_instance_identity
+      on ddl_command_end
+      execute function lnkz_test_fail_on_instance_identity()
+    `);
+
+    await assert.rejects(
+      runPostgresMigrations(migrationUrl),
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.match(error.message, /Migration 3 \(003_instance_identity\.sql\) failed/);
+        assert.match(error.message, /intentional later migration SQL failure for rollback coverage/);
+        return true;
+      },
+    );
+
+    const versions = await migrationPool.query<{ version: number }>(
+      "select version from schema_migrations order by version",
+    );
+    assert.deepEqual(
+      versions.rows.map((row) => Number(row.version)),
+      [1, 2],
+    );
+
+    const tables = await migrationPool.query<{ table_name: string }>(`
+      select table_name
+      from information_schema.tables
+      where table_schema = 'public'
+        and table_name in (
+          'workspaces',
+          'conversations',
+          'messages',
+          'handoffs',
+          'events',
+          'rate_limit_buckets',
+          'instance_identity'
+        )
+      order by table_name
+    `);
+    assert.deepEqual(tables.rows, [
+      { table_name: "conversations" },
+      { table_name: "events" },
+      { table_name: "handoffs" },
+      { table_name: "messages" },
+      { table_name: "rate_limit_buckets" },
+      { table_name: "workspaces" },
+    ]);
+
+    const actorColumn = await migrationPool.query<{ column_name: string }>(`
+      select column_name
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'events'
+        and column_name = 'actor_id'
+    `);
+    assert.deepEqual(actorColumn.rows, [{ column_name: "actor_id" }]);
+  } finally {
+    await migrationPool.query("drop event trigger if exists lnkz_test_fail_on_instance_identity");
+    await migrationPool.query("drop function if exists lnkz_test_fail_on_instance_identity()");
+    await migrationPool.end();
+  }
+
+  assert.equal(await runPostgresMigrations(migrationUrl), 3);
+  const store = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
+  const id = `postgres-later-migration-retry-${Date.now()}`;
+  try {
+    const conversation = await store.save({
+      id,
+      title: "Later migration retry",
+      summary: "Committed schema versions survived a later failed migration.",
+      source: { provider: "test" },
+      participants: ["test"],
+      tags: ["migration"],
+      messages: [{ role: "user", content: "Resume the later migration safely." }],
+    });
+    assert.equal(conversation.id, id);
+    assert.equal((await store.get(id))?.id, id);
+  } finally {
+    await store.remove(id);
+    store.close();
+  }
+});
+
 test("Postgres migration SQL failures identify the migration and preserve the database error", async () => {
   const databaseError = new Error('column "actor_id" already exists');
   const client = {
