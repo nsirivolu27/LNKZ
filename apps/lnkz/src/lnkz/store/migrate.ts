@@ -69,7 +69,11 @@ export async function runPostgresMigrations(databaseUrl = process.env.DATABASE_U
         throw migrationError(lastMigration, error, "post-migration setup");
       }
     }
-    await client.query("commit");
+    try {
+      await client.query("commit");
+    } catch (error) {
+      throw migrationError(lastMigration, error, "commit");
+    }
     return latest;
   } catch (error) {
     await client.query("rollback").catch(() => undefined);

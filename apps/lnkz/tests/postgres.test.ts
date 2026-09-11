@@ -277,6 +277,42 @@ test("Postgres post-migration setup failures identify the last applied migration
   }
 });
 
+test("Postgres migration commit failures identify the last applied migration", async () => {
+  const commitError = new Error("could not commit transaction");
+  const client = {
+    query: async (statement: string) => {
+      if (statement.includes("select current_user as role_name")) return { rows: [{ role_name: "migration-role" }] };
+      if (statement.includes("select version from schema_migrations")) return { rows: [] };
+      if (statement === "commit") throw commitError;
+      return { rows: [] };
+    },
+    release: () => undefined,
+  } as unknown as import("pg").PoolClient;
+  const originalConnect = Pool.prototype.connect;
+  Object.defineProperty(Pool.prototype, "connect", {
+    configurable: true,
+    value: async () => client,
+  });
+
+  try {
+    await assert.rejects(
+      runPostgresMigrations("postgres://migration-commit-context-test.invalid"),
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.match(error.message, /Migration 3 \(003_instance_identity\.sql\) commit failed/);
+        assert.match(error.message, /could not commit transaction/);
+        assert.equal(error.cause, commitError);
+        return true;
+      },
+    );
+  } finally {
+    Object.defineProperty(Pool.prototype, "connect", {
+      configurable: true,
+      value: originalConnect,
+    });
+  }
+});
+
 test("Postgres migrations reject the configured runtime role", async () => {
   const previousAppRole = process.env.LNKZ_DATABASE_APP_ROLE;
   process.env.LNKZ_DATABASE_APP_ROLE = "lnkz-app";
