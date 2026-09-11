@@ -90,12 +90,16 @@ function migrationError(
   phase = "migration",
 ): Error {
   const cause = error instanceof Error ? error.message : String(error);
+  const code =
+    error && typeof error === "object" && "code" in error && typeof error.code === "string"
+      ? error.code
+      : undefined;
   const context = migration
     ? phase === "migration"
       ? `Migration ${migration.version} (${migration.file}) failed`
       : `Migration ${migration.version} (${migration.file}) ${phase} failed`
     : `Post-migration setup failed`;
-  return new Error(`${context}: ${cause}`, { cause: error });
+  return new Error(`${context}: ${cause}${code ? ` (SQLSTATE ${code})` : ""}`, { cause: error });
 }
 
 async function grantApplicationRole(client: import("pg").PoolClient, role: string): Promise<void> {

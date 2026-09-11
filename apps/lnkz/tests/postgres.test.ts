@@ -346,7 +346,7 @@ test("Postgres migrations preserve committed versions when a later migration fai
 });
 
 test("Postgres migration SQL failures identify the migration and preserve the database error", async () => {
-  const databaseError = new Error('column "actor_id" already exists');
+  const databaseError = Object.assign(new Error('column "actor_id" already exists'), { code: "42701" });
   const client = {
     query: async (statement: string) => {
       if (statement.includes("select current_user as role_name")) return { rows: [{ role_name: "migration-role" }] };
@@ -371,6 +371,7 @@ test("Postgres migration SQL failures identify the migration and preserve the da
         assert(error instanceof Error);
         assert.match(error.message, /Migration 2 \(002_identity_context\.sql\) failed/);
         assert.match(error.message, /column "actor_id" already exists/);
+        assert.match(error.message, /SQLSTATE 42701/);
         assert.equal(error.cause, databaseError);
         return true;
       },
