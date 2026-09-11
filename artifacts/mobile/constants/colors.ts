@@ -39,7 +39,7 @@ const colors = {
     border: '#f4f0e8',
     input: '#4d4c47',
   },
-  radius: 10,
+  radius: 0,
 };
 
 export default colors;

@@ -406,6 +406,7 @@ export function ConversationCard({
   onPress: () => void;
 }) {
   const colors = useColors();
+  const title = conversation.title.replace(/\\n|\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
   return (
     <Pressable
       onPress={onPress}
@@ -419,7 +420,7 @@ export function ConversationCard({
         <Text style={[styles.providerBadgeText, { color: colors.primary }]}>{conversation.source.provider.slice(0, 2).toUpperCase()}</Text>
       </View>
       <View style={styles.cardContent}>
-        <Text numberOfLines={1} style={[styles.cardTitle, { color: colors.foreground }]}>{conversation.title}</Text>
+        <Text numberOfLines={1} style={[styles.cardTitle, { color: colors.foreground }]}>{title}</Text>
         <Text numberOfLines={1} style={[styles.cardSummary, { color: colors.mutedForeground }]}>
           {conversation.source.provider.toUpperCase()} · {conversation.messageCount} MESSAGES · {formatDate(conversation.updatedAt)}
         </Text>
@@ -488,7 +489,7 @@ export const styles = StyleSheet.create({
   notice: { flexDirection: 'row', gap: 10, padding: 13, borderWidth: 1.5 },
   noticeCopy: { flex: 1, gap: 10, alignItems: 'flex-start' },
   noticeText: { fontFamily: 'Inter_500Medium', fontSize: 13, lineHeight: 19 },
-  empty: { minHeight: 260, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10, borderWidth: 1.5, borderStyle: 'dashed' },
+  empty: { minHeight: 160, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10, borderWidth: 1.5, borderStyle: 'dashed' },
   emptyIcon: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   emptyTitle: { fontFamily: 'Inter_700Bold', fontSize: 18, textAlign: 'center' },
   emptyDescription: { fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20, textAlign: 'center', maxWidth: 280 },

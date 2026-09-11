@@ -100,40 +100,37 @@ export default function LibraryScreen() {
           onThread={() => router.push('/(tabs)')}
         />
 
-        <View style={styles.hero}>
-          <Text style={[styles.heroKicker, { color: colors.mutedForeground }]}>RELAY / NOTICE OF CHANGE / EFFECTIVE IMMEDIATELY</Text>
-          <Text style={[styles.heroWord, { color: colors.foreground }]}>NOISE.</Text>
-          <Text style={[styles.heroSubword, { color: colors.foreground }]}>IS NOW</Text>
-          <Text style={[styles.heroHighlight, { color: colors.accentForeground, backgroundColor: colors.accent }]}>USEFUL.</Text>
-          <Text style={[styles.heroBody, { color: colors.foreground }]}>
-            PICK ONE CONVERSATION. LNKZ KEEPS THE DECISIONS, THE OPEN QUESTIONS, AND THE USEFUL PART OF THE ROUTE.
-          </Text>
+        <View style={[styles.statsRow, { borderColor: colors.border }]}>
+          <FieldHandoffStat label="THREADS" value={statsQuery.isLoading ? '…' : String(stats?.conversations ?? conversations.length)} style={styles.statQuarter} />
+          <FieldHandoffStat label="MESSAGES" value={statsQuery.isLoading ? '…' : (stats?.messages ?? messageCount).toLocaleString()} style={styles.statQuarter} />
+          <FieldHandoffStat label="HANDOFFS" value={statsQuery.isLoading ? '…' : String(stats?.activeHandoffs ?? 0)} style={styles.statQuarter} />
+          <FieldHandoffStat label="SOURCES" value={connectorsQuery.isLoading ? '…' : String(connectedSources)} style={styles.statQuarter} />
         </View>
 
-        <View style={[styles.threadHeading, { borderColor: colors.border }]}>
-          <SectionLabel>THE THREAD</SectionLabel>
-          <SecondaryButton label="Import a conversation" icon="download" onPress={() => router.push('/import')} />
-        </View>
-
-        <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="search" size={16} color={colors.mutedForeground} />
-          <TextInput
-            style={[styles.searchText, { color: colors.foreground }]}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="SEARCH THE THREAD"
-            placeholderTextColor={colors.mutedForeground}
-            autoCorrect={false}
-            returnKeyType="search"
-            testID="conversation-search-input"
-          />
-          <Chip label={showFilters ? 'CLOSE' : 'FILTER'} selected={showFilters} onPress={() => setShowFilters((visible) => !visible)} />
+        <View style={[styles.toolbar, { backgroundColor: colors.background, borderColor: colors.border }]}>
+          <View style={styles.toolbarInput}>
+            <Feather name="terminal" size={14} color={colors.mutedForeground} />
+            <TextInput
+              style={[styles.searchText, { color: colors.foreground }]}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="SEARCH_INDEX"
+              placeholderTextColor={colors.mutedForeground}
+              autoCorrect={false}
+              returnKeyType="search"
+              testID="conversation-search-input"
+            />
+          </View>
+          <View style={styles.toolbarActions}>
+            <SecondaryButton label="IMPORT" onPress={() => router.push('/import')} />
+            <Chip label={showFilters ? 'HIDE' : 'FLTR'} selected={showFilters} onPress={() => setShowFilters((visible) => !visible)} />
+          </View>
         </View>
 
         {showFilters ? (
           <View style={styles.filterRow}>
             {PROVIDERS.map((item) => (
-              <Chip key={item} label={item} selected={provider === item} onPress={() => setProvider(item)} />
+              <Chip key={item} label={item.toUpperCase()} selected={provider === item} onPress={() => setProvider(item)} />
             ))}
           </View>
         ) : null}
@@ -144,10 +141,10 @@ export default function LibraryScreen() {
           <ErrorNotice message={error} onRetry={() => libraryQuery.refetch()} />
         ) : conversations.length === 0 ? (
           <EmptyState
-            icon="archive"
-            title={query ? 'No matching context' : 'Your thread is empty'}
-            description={query ? 'Try a broader search or another provider.' : 'Import a transcript to make the useful parts portable.'}
-            action={<Chip label="IMPORT A TRANSCRIPT" selected onPress={() => router.push('/import')} />}
+            icon="database"
+            title={query ? 'NO_MATCHING_RECORDS' : 'INDEX_EMPTY'}
+            description={query ? 'Try a broader search or another provider.' : 'Import a transcript to initialize local index.'}
+            action={<Chip label="IMPORT_TRANSCRIPT" selected onPress={() => router.push('/import')} />}
           />
         ) : (
           <View style={styles.conversationList}>
@@ -156,13 +153,6 @@ export default function LibraryScreen() {
             ))}
           </View>
         )}
-
-        <View style={[styles.statsRow, { borderColor: colors.border }]}>
-          <FieldHandoffStat label="THREADS" value={statsQuery.isLoading ? '…' : String(stats?.conversations ?? conversations.length)} style={styles.statHalf} />
-          <FieldHandoffStat label="MESSAGES" value={statsQuery.isLoading ? '…' : (stats?.messages ?? messageCount).toLocaleString()} style={styles.statHalf} />
-          <FieldHandoffStat label="HANDOFFS" value={statsQuery.isLoading ? '…' : String(stats?.activeHandoffs ?? 0)} style={styles.statHalf} />
-          <FieldHandoffStat label="SOURCES" value={connectorsQuery.isLoading ? '…' : String(connectedSources)} style={styles.statHalf} />
-        </View>
 
         <View style={[styles.sourcesPanel, { borderColor: colors.border }]}>
           <View style={styles.sourcesHeading}>
@@ -208,10 +198,12 @@ const styles = StyleSheet.create({
   heroHighlight: { alignSelf: 'flex-start', fontFamily: 'Inter_700Bold', fontSize: 40, lineHeight: 44, letterSpacing: -1.2, paddingHorizontal: 4, marginTop: 1 },
   heroBody: { maxWidth: 310, fontFamily: 'Inter_700Bold', fontSize: 9, lineHeight: 13, letterSpacing: 0.25, marginTop: 13 },
   threadHeading: { minHeight: 50, paddingHorizontal: 10, borderTopWidth: 1.5, borderBottomWidth: 1.5, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
-  searchBar: { minHeight: 46, marginTop: 13, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', paddingLeft: 11, gap: 8 },
-  searchText: { flex: 1, fontFamily: 'Inter_700Bold', fontSize: 10, letterSpacing: 0.8 },
+  toolbar: { minHeight: 46, marginTop: 16, borderBottomWidth: 1.5, borderTopWidth: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingVertical: 8, gap: 12 },
+  toolbarInput: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toolbarActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  searchText: { flex: 1, fontFamily: 'Inter_500Medium', fontSize: 11, letterSpacing: 0.8 },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingVertical: 10 },
-  sourcesPanel: { marginTop: 12, padding: 10, borderWidth: 1.5, gap: 10 },
+  sourcesPanel: { marginTop: 16, padding: 10, borderWidth: 1.5, gap: 10 },
   sourcesHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
   sourceLoading: { minHeight: 36, justifyContent: 'center', alignItems: 'center' },
   sourcesList: { gap: 0 },
@@ -222,8 +214,9 @@ const styles = StyleSheet.create({
   sourceEmpty: { fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 17 },
   loading: { minHeight: 160, justifyContent: 'center', alignItems: 'center' },
   conversationList: { gap: 0, paddingTop: 4 },
-  statsRow: { flexDirection: 'row', borderTopWidth: 1.5, borderLeftWidth: 1.5, marginTop: 20 },
+  statsRow: { flexDirection: 'row', borderLeftWidth: 1.5, marginTop: 16, borderBottomWidth: 1.5, borderTopWidth: 1.5 },
+  statQuarter: { flexBasis: '25%', flexGrow: 0, flexShrink: 0, width: '25%', paddingHorizontal: 6, minHeight: 46 },
   statHalf: { flexBasis: '50%', flexGrow: 0, flexShrink: 0, width: '50%' },
-  footer: { minHeight: 42, paddingHorizontal: 10, justifyContent: 'center', marginTop: 12 },
+  footer: { minHeight: 42, paddingHorizontal: 10, justifyContent: 'center', marginTop: 16, marginBottom: 20 },
   footerText: { fontFamily: 'Inter_700Bold', fontSize: 7, lineHeight: 11, letterSpacing: 0.7 },
 });
