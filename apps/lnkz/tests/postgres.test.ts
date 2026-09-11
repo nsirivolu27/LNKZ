@@ -1057,6 +1057,60 @@ test("SQLite to Postgres migration without a source identity reports no identity
   }
 });
 
+test("SQLite to Postgres migration preserves conversation history without a source identity", { skip: !enabled }, async () => {
+  await runPostgresMigrations(migrationUrl);
+  await clearPostgresData();
+
+  const directory = await mkdtemp(join(tmpdir(), "lnkz-postgres-migration-history-"));
+  const sqlitePath = join(directory, "source.db");
+  const sourceStore = new SqliteConversationStore(sqlitePath);
+  let sourceConversation;
+  try {
+    sourceConversation = await sourceStore.save({
+      id: "identity-less-history-conversation",
+      title: "Conversation imported without identity",
+      summary: "The conversation body must survive an identity-less import.",
+      source: { provider: "test", app: "migration-fixture" },
+      participants: ["user", "assistant"],
+      tags: ["migration", "history"],
+      messages: [
+        { role: "user", content: "Please preserve this conversation." },
+        { role: "assistant", content: "The conversation history was preserved." },
+      ],
+    });
+  } finally {
+    sourceStore.close();
+  }
+
+  const sourceDatabase = new DatabaseSync(sqlitePath);
+  try {
+    sourceDatabase.exec("drop table instance_identity");
+  } finally {
+    sourceDatabase.close();
+  }
+
+  try {
+    await migrateSqliteToPostgres({ sqlite: sqlitePath, database: appUrl, dryRun: false });
+
+    const targetStore = new PostgresConversationStore(appUrl, DEFAULT_WORKSPACE_ID);
+    try {
+      const migratedConversation = await targetStore.get(sourceConversation.id);
+      assert.ok(migratedConversation);
+      assert.equal(migratedConversation.title, sourceConversation.title);
+      assert.equal(migratedConversation.summary, sourceConversation.summary);
+      assert.deepEqual(migratedConversation.messages.map(({ role, content }) => ({ role, content })), [
+        { role: "user", content: "Please preserve this conversation." },
+        { role: "assistant", content: "The conversation history was preserved." },
+      ]);
+    } finally {
+      targetStore.close();
+    }
+  } finally {
+    await clearPostgresData();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("SQLite to Postgres migration redeems handoffs with the existing target identity", { skip: !enabled }, async () => {
   await runPostgresMigrations(migrationUrl);
   await clearPostgresData();
