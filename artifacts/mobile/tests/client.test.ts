@@ -15,11 +15,58 @@ function readMobileSource(relativePath: string): string {
 }
 
 const headerSource = readMobileSource('components/ui.tsx');
+const uiSource = headerSource;
 const librarySource = readMobileSource('app/(tabs)/index.tsx');
 
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   globalThis.fetch = (async (input, init) => handler(String(input), init)) as typeof fetch;
 }
+
+type OfflineScreenFixture = {
+  name: string;
+  source: string;
+  statusCopy: string[];
+  anchors: string[];
+};
+
+const offlineScreenFixtures: OfflineScreenFixture[] = [
+  {
+    name: 'import preview',
+    source: 'app/import.tsx',
+    statusCopy: ['CONVERSATION', 'FOUND', 'Save to library'],
+    anchors: ['testID="transcript-input"', 'testID="share-url-input"', 'label="Preview import"'],
+  },
+  {
+    name: 'packet output',
+    source: 'app/(tabs)/build.tsx',
+    statusCopy: ['READY TO MOVE', 'Copy packet', 'Share'],
+    anchors: ['testID="packet-query-input"', 'label="Build context packet"', 'Could not build packet.'],
+  },
+  {
+    name: 'handoff issuance',
+    source: 'app/handoff/new.tsx',
+    statusCopy: ['Link is live.', 'PRIVATE EXPIRING LINK', 'Copy link', 'REDACTION ON'],
+    anchors: ['label="Create secure handoff"', 'label="Close"'],
+  },
+  {
+    name: 'conversation detail',
+    source: 'app/conversations/[id].tsx',
+    statusCopy: ['TRANSCRIPT', 'Create handoff', 'Build packet'],
+    anchors: ['label="Close conversation"', 'This conversation will be included in the next context packet.'],
+  },
+  {
+    name: 'empty library',
+    source: 'app/(tabs)/index.tsx',
+    statusCopy: ['INDEX_EMPTY', 'Import a transcript to initialize local index.', 'IMPORT_TRANSCRIPT'],
+    anchors: ['testID="conversation-search-input"', 'EmptyState', 'router.push(\'/import\')'],
+  },
+  {
+    name: 'request errors',
+    source: 'app/(tabs)/handoffs.tsx',
+    statusCopy: ['Could not load handoffs.', 'Could not revoke this handoff.'],
+    anchors: ['ErrorNotice', 'onRetry={() => handoffsQuery.refetch()}'],
+  },
+];
 
 class MemoryStorage implements CredentialStorage {
   readonly values = new Map<string, string>();
@@ -284,6 +331,25 @@ test('secondary mobile routes continue to use the shared navigation header', () 
   for (const route of secondaryRoutes) {
     assert.match(readMobileSource(route), /<ScreenHeader(?:\s|>)/, `${route} must render ScreenHeader`);
   }
+});
+
+test('offline screen fixtures preserve visible states and accessibility anchors', () => {
+  for (const fixture of offlineScreenFixtures) {
+    const source = readMobileSource(fixture.source);
+    for (const copy of fixture.statusCopy) {
+      assert.ok(source.includes(copy), `${fixture.name} fixture lost visible copy: ${copy}`);
+    }
+    for (const anchor of fixture.anchors) {
+      assert.ok(source.includes(anchor), `${fixture.name} fixture lost screen anchor: ${anchor}`);
+    }
+  }
+
+  // PrimaryButton and IconButton turn their labels into stable testIDs while
+  // exposing the same labels to assistive technology.
+  assert.match(uiSource, /testID=\{`button-\$\{label\.toLowerCase\(\)\.replace/);
+  assert.match(uiSource, /testID=\{`icon-\$\{label\.toLowerCase\(\)\.replace/);
+  assert.match(uiSource, /accessibilityLabel=\{label\}/);
+  assert.match(uiSource, /accessibilityLabel="Send context"/);
 });
 
 test('handoff state distinguishes active, expired, exhausted, and revoked links', () => {
