@@ -15,6 +15,7 @@
     "test": "tsc -p tsconfig.test.json && node scripts/copy-test-migrations.mjs && node --test .testbuild/tests/*.test.js",
     "verify:http": "node ./scripts/verify-http.mjs",
     "verify:web": "node ./scripts/verify-web.mjs",
+    "verify:journey": "node ./scripts/acceptance.mjs",
     "smoke": "node ./scripts/smoke.mjs",
     "db:backup": "node ./scripts/backup-sqlite.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",

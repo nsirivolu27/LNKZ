@@ -313,7 +313,46 @@ app.get("/api/handoffs", requireApiKey, async (request, response) => {
 app.post("/api/handoffs/continue", requireApiKey, apiLimiter, sharedApiLimiter, async (request, response) => {
   try {
     const options = continueConversationSchema.parse(request.body);
-    const packet = await store.redeemHandoff(options.token);
+
+    if (options.url) {
+      // Someone else's link. fetchTransfer applies the same SSRF guards as
+      // import-url: http and https only, no credentials in the URL, every
+      // resolved address public unless LNKZ_TRANSFER_ALLOW_PRIVATE says
+      // otherwise, a size cap and a timeout. There is no separate path here
+      // and no relaxed check for "trusted" links.
+      const transfer = await fetchTransfer(options.url);
+      const parent = transfer.conversation;
+
+      const conversation = await store.save({
+        title: options.title || `${parent.title} (continued in ${options.provider})`,
+        summary: parent.summary,
+        source: { provider: options.provider, app: options.app },
+        participants: parent.participants,
+        tags: [...new Set([...(parent.tags ?? []), "continuation"])],
+        messages: [...parent.messages, ...options.messages],
+        lineage: {
+          // Deliberately no parentId. The parent is a row in the sending
+          // instance's database, and repeating its id here would produce
+          // lineage pointing at something this instance has never seen. The
+          // root is different: it identifies the chain rather than a row, so
+          // it crosses. originConversationId is what names the parent, and it
+          // is only meaningful alongside originInstance.
+          rootId: parent.lineage?.rootId ?? transfer.origin.conversationId,
+          originInstance: transfer.origin.instance,
+          originConversationId: transfer.origin.conversationId,
+          handoffId: transfer.origin.handoffId,
+          importedAt: new Date().toISOString(),
+          continuedBy: options.provider,
+        },
+      });
+
+      response.status(201).json({ conversation, origin: transfer.origin, warnings: transfer.warnings });
+      return;
+    }
+
+    // A handoff minted here. The parent row is local, so the continuation can
+    // point straight at it.
+    const packet = await store.redeemHandoff(options.token as string);
     if (!packet) {
       response.status(404).json({ error: "Handoff is invalid, revoked, exhausted, or expired." });
       return;
@@ -337,6 +376,10 @@ app.post("/api/handoffs/continue", requireApiKey, apiLimiter, sharedApiLimiter, 
 
     response.status(201).json({ conversation, parentId: parent.id });
   } catch (error) {
+    if (error instanceof TransferError) {
+      response.status(422).json({ error: error.message });
+      return;
+    }
     badRequest(response, error);
   }
 });

@@ -3,6 +3,7 @@ import test from "node:test";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fetchTransfer } from "../src/lnkz/transfer.js";
+import { continueConversationSchema } from "../src/lnkz/schemas.js";
 import { SqliteConversationStore } from "../src/lnkz/store/index.js";
 import type { ConversationStore } from "../src/lnkz/store/index.js";
 
@@ -208,4 +209,23 @@ test("every field declared on ConversationLineage survives a save", async () => 
   } finally {
     store.close();
   }
+});
+
+test("continuing a handoff takes either a local token or a remote url, never both and never neither", () => {
+  // The two paths produce different lineage: a local token can point at a
+  // parent row in this database, a remote url cannot. Accepting both at once
+  // would leave the route choosing for the caller, and accepting neither would
+  // reach the handler with nothing to redeem. Both are rejected at the edge.
+  const messages = [{ role: "assistant" as const, content: "Carrying it forward." }];
+  const token = "t".repeat(24);
+  const url = "https://relay.example.com/share/abc123";
+
+  assert.ok(continueConversationSchema.safeParse({ token, provider: "claude", messages }).success);
+  assert.ok(continueConversationSchema.safeParse({ url, provider: "claude", messages }).success);
+
+  const both = continueConversationSchema.safeParse({ token, url, provider: "claude", messages });
+  assert.equal(both.success, false, "a request naming both a token and a url was accepted");
+
+  const neither = continueConversationSchema.safeParse({ provider: "claude", messages });
+  assert.equal(neither.success, false, "a request naming neither a token nor a url was accepted");
 });

@@ -108,13 +108,31 @@ export const contextPacketSchema = z.object({
   includeExternal: z.boolean().default(true),
 });
 
-export const continueConversationSchema = z.object({
-  token: z.string().trim().min(20).max(500),
-  provider: z.string().trim().min(1).max(80),
-  app: z.string().trim().max(120).optional(),
-  title: z.string().trim().max(240).optional(),
-  messages: z.array(messageSchema).min(1).max(500),
-});
+/**
+ * Continuing a handoff, from this instance or from someone else's.
+ *
+ * `token` is a handoff minted here: the parent row is in this database, so the
+ * continuation can point at it directly. `url` is a share link from another
+ * instance: the parent lives on a machine this one does not own, so the
+ * continuation records where it came from instead of pointing at a row that
+ * does not exist locally.
+ *
+ * Exactly one of the two. Accepting both would leave the server guessing which
+ * one the caller meant, and the two paths produce different lineage.
+ */
+export const continueConversationSchema = z
+  .object({
+    token: z.string().trim().min(20).max(500).optional(),
+    url: z.string().trim().min(1).max(2_048).optional(),
+    provider: z.string().trim().min(1).max(80),
+    app: z.string().trim().max(120).optional(),
+    title: z.string().trim().max(240).optional(),
+    messages: z.array(messageSchema).min(1).max(500),
+  })
+  .refine((value) => Boolean(value.token) !== Boolean(value.url), {
+    message: "Provide either a token for a local handoff or a url for another instance's link, not both and not neither.",
+    path: ["token"],
+  });
 
 export const analyzeSchema = z.object({
   conversationId: z.string().uuid(),
