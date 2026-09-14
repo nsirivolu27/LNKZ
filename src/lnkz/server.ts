@@ -12,6 +12,7 @@ import {
 } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { connectorStatuses } from "./connectors/index.js";
+import { localContinuation, remoteContinuation } from "./continuation.js";
 import { importConversations } from "./import/index.js";
 import { fetchTransfer, TransferError } from "./transfer.js";
 import { analyzeConversation } from "./intel/analyze.js";
@@ -321,58 +322,46 @@ app.post("/api/handoffs/continue", requireApiKey, apiLimiter, sharedApiLimiter, 
       // otherwise, a size cap and a timeout. There is no separate path here
       // and no relaxed check for "trusted" links.
       const transfer = await fetchTransfer(options.url);
-      const parent = transfer.conversation;
 
-      const conversation = await store.save({
-        title: options.title || `${parent.title} (continued in ${options.provider})`,
-        summary: parent.summary,
-        source: { provider: options.provider, app: options.app },
-        participants: parent.participants,
-        tags: [...new Set([...(parent.tags ?? []), "continuation"])],
-        messages: [...parent.messages, ...options.messages],
-        lineage: {
-          // Deliberately no parentId. The parent is a row in the sending
-          // instance's database, and repeating its id here would produce
-          // lineage pointing at something this instance has never seen. The
-          // root is different: it identifies the chain rather than a row, so
-          // it crosses. originConversationId is what names the parent, and it
-          // is only meaningful alongside originInstance.
-          rootId: parent.lineage?.rootId ?? transfer.origin.conversationId,
-          originInstance: transfer.origin.instance,
-          originConversationId: transfer.origin.conversationId,
-          handoffId: transfer.origin.handoffId,
-          importedAt: new Date().toISOString(),
-          continuedBy: options.provider,
-        },
-      });
+      const conversation = await store.save(remoteContinuation({
+        parent: transfer.conversation,
+        origin: transfer.origin,
+        provider: options.provider,
+        app: options.app,
+        title: options.title,
+        messages: options.messages,
+      }));
 
       response.status(201).json({ conversation, origin: transfer.origin, warnings: transfer.warnings });
       return;
     }
 
     // A handoff minted here. The parent row is local, so the continuation can
-    // point straight at it.
-    const packet = await store.redeemHandoff(options.token as string);
+    // point straight at it. The schema already guarantees a token when there is
+    // no url; this reads it as a value rather than asserting one, so a future
+    // change to that refinement fails here loudly instead of passing undefined
+    // into the store.
+    const { token } = options;
+    if (!token) {
+      response.status(400).json({ error: "Provide either a token or a url." });
+      return;
+    }
+    const packet = await store.redeemHandoff(token);
     if (!packet) {
       response.status(404).json({ error: "Handoff is invalid, revoked, exhausted, or expired." });
       return;
     }
 
     const parent = packet.conversation;
-    const conversation = await store.save({
-      title: options.title || `${parent.title} (continued in ${options.provider})`,
-      summary: parent.summary,
-      source: { provider: options.provider, app: options.app },
-      participants: parent.participants,
-      tags: [...new Set([...parent.tags, "continuation"])],
-      messages: [...parent.messages, ...options.messages],
-      lineage: {
-        parentId: parent.id,
-        rootId: parent.lineage?.rootId ?? parent.id,
-        handoffId: packet.handoff.id,
-        continuedBy: options.provider,
-      },
-    });
+    const conversation = await store.save(localContinuation({
+      parent,
+      parentId: parent.id,
+      handoffId: packet.handoff.id,
+      provider: options.provider,
+      app: options.app,
+      title: options.title,
+      messages: options.messages,
+    }));
 
     response.status(201).json({ conversation, parentId: parent.id });
   } catch (error) {

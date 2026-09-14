@@ -78,15 +78,20 @@ try {
 
   // 3. Search has to find it, or the library is useless at any real size.
   const found = await call(a, "POST", "/api/conversations/search", { query: "SQLite single node", limit: 10 });
-  const hit = (found.results ?? found.conversations ?? []).some((row) => row.id === original.id);
-  assert.ok(hit, "search on A did not return the conversation it just stored");
+  assert.ok(Array.isArray(found.matches), "search did not return a matches array; the response shape changed");
+  assert.ok(found.matches.some((match) => match.id === original.id), "search on A did not return the conversation it just stored");
   pass("search on A finds the conversation");
 
   // 4. A context packet, under budget, carrying the useful parts.
   const packet = (await call(a, "POST", "/api/context/packet", { query: "store for the relay", budgetTokens: 1500 })).packet;
   assert.ok(packet, "A returned no packet");
   assert.ok(packet.conversations?.length > 0, "the packet contained no conversations");
-  pass("A builds a context packet within a token budget");
+  assert.ok(packet.usedTokens <= packet.budgetTokens, `the packet used ${packet.usedTokens} tokens against a budget of ${packet.budgetTokens}`);
+  assert.ok(
+    packet.conversations.some((entry) => entry.decisions.length || entry.openQuestions.length || entry.actionItems.length),
+    "the packet carried transcript but none of the decisions, questions or actions that make it worth sending",
+  );
+  pass("A builds a context packet within a token budget, carrying decisions and questions");
 
   // 5. A scoped handoff. Redaction on, so the planted credential must not leave.
   const handoff = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
