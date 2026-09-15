@@ -182,13 +182,66 @@ try {
   );
   pass("revoking a link with four uses left stops redemption on both paths");
 
-  // 11. Restart B on the same database. Nothing may be lost.
+  // 12. Two devices, two keys. Separate databases are visible in the ids above;
+  // separate credentials are not, and a shared key would make every isolation
+  // claim in this file meaningless.
+  // Separate databases, stated directly rather than inferred from the ids
+  // differing: A's conversation id must mean nothing on B.
+  const strangerId = await fetch(`${b.base}/api/conversations/${original.id}`, {
+    headers: { authorization: `Bearer ${b.key}` },
+  });
+  assert.equal(strangerId.status, 404, "B knows A's conversation id, so they are sharing a database");
+
+  const crossed = await fetch(`${b.base}/api/stats`, { headers: { authorization: `Bearer ${a.key}` } });
+  assert.equal(crossed.status, 401, `A's key was accepted by B, status ${crossed.status}`);
+  const noKey = await fetch(`${b.base}/api/stats`);
+  assert.equal(noKey.status, 401, `B served stats with no key at all, status ${noKey.status}`);
+  const junkKey = await fetch(`${b.base}/api/stats`, { headers: { authorization: "Bearer not-a-real-key" } });
+  assert.equal(junkKey.status, 401, `B accepted an invented key, status ${junkKey.status}`);
+  pass("each relay has its own key, and a wrong, missing or invented one is refused");
+
+  // 13. The return leg. Everything above proves a conversation can leave. This
+  // proves it can come home, which is the half that quietly breaks: the copy
+  // arriving back at A must resolve to A's own original, not to an id that
+  // exists only on B.
+  const backToA = await call(b, "POST", `/api/conversations/${continued.id}/handoffs`, {
+    ttlMinutes: 10, maxUses: 1, redact: false,
+  });
+  const returned = (await call(a, "POST", "/api/handoffs/continue", {
+    url: backToA.shareUrl,
+    provider: "chatgpt",
+    messages: [{ role: "user", content: "Thanks. Filing that decision." }],
+  })).conversation;
+
+  assert.equal(returned.lineage?.originInstance, b.base, "A did not record that this came back from B");
+  assert.equal(returned.lineage?.originConversationId, continued.id);
+  assert.equal(returned.lineage?.continuedBy, "chatgpt");
+  assert.equal(returned.lineage?.parentId, undefined, "B's row id was stored on A as though it were local");
+
+  // The assertion the whole product rests on. After going out, being continued
+  // elsewhere, and coming back, A can still walk from the returned copy to the
+  // conversation it started with.
+  assert.equal(returned.lineage?.rootId, original.id, "the chain root did not survive the round trip");
+  const root = (await call(a, "GET", `/api/conversations/${returned.lineage.rootId}`)).conversation;
+  assert.equal(root.id, original.id, "the root resolved to something other than A's original");
+  assert.equal(root.messages.length, 4, "the root is not the untouched original");
+  pass("the conversation comes home to A and resolves to A's own original");
+
+  // 14. Restart both. Nothing may be lost on either device.
+  await stop(a);
   await stop(b);
+  const aAgain = await start("A", a.port, a.key);
   const bAgain = await start("B", b.port, b.key);
-  const survived = (await call(bAgain, "GET", `/api/conversations/${continued.id}`)).conversation;
-  assert.equal(survived.lineage?.rootId, original.id, "lineage did not survive a restart of B");
-  assert.equal(survived.messages.length, continued.messages.length, "messages did not survive a restart of B");
-  pass("B restarts and the continuation is still there with its lineage");
+
+  const survivedOnB = (await call(bAgain, "GET", `/api/conversations/${continued.id}`)).conversation;
+  assert.equal(survivedOnB.lineage?.rootId, original.id, "lineage did not survive a restart of B");
+  assert.equal(survivedOnB.messages.length, continued.messages.length, "messages did not survive a restart of B");
+
+  const survivedOnA = (await call(aAgain, "GET", `/api/conversations/${returned.id}`)).conversation;
+  assert.equal(survivedOnA.lineage?.rootId, original.id, "lineage did not survive a restart of A");
+  const originalAfterRestart = (await call(aAgain, "GET", `/api/conversations/${original.id}`)).conversation;
+  assert.equal(originalAfterRestart.messages.length, 4, "A's original did not survive its own restart intact");
+  pass("both relays restart and keep their own copies, lineage included");
 
   passed = true;
 } catch (error) {
