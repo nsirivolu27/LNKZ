@@ -492,6 +492,11 @@ function ReceiveLink({ client, onReceived, setError }: {
           <Text style={styles.detailLabel}>{preview.preview.title}</Text>
           <Text style={styles.meta}>{preview.preview.provider} · {preview.preview.messages} MESSAGES</Text>
           <Text style={styles.meta}>From {preview.origin.instance}</Text>
+          <Text style={styles.meta}>
+            {preview.preview.usesRemaining} {preview.preview.usesRemaining === 1 ? "USE" : "USES"} LEFT
+            {preview.preview.redact ? " · REDACTED" : ""}
+          </Text>
+          <Text style={styles.hint}>Looking is free. Importing or continuing spends one use.</Text>
           {preview.warnings.map((warning) => <Text key={warning} style={styles.hint}>{warning}</Text>)}
         </View>
       ) : null}

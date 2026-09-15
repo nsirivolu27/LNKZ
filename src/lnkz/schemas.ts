@@ -109,30 +109,35 @@ export const contextPacketSchema = z.object({
 });
 
 /**
- * Continuing a handoff, from this instance or from someone else's.
+ * Continuing a handoff minted by this instance. The parent row is in this
+ * database, so the continuation can point straight at it.
  *
- * `token` is a handoff minted here: the parent row is in this database, so the
- * continuation can point at it directly. `url` is a share link from another
- * instance: the parent lives on a machine this one does not own, so the
- * continuation records where it came from instead of pointing at a row that
- * does not exist locally.
- *
- * Exactly one of the two. Accepting both would leave the server guessing which
- * one the caller meant, and the two paths produce different lineage.
+ * Kept as a plain object rather than a refined union with the remote form
+ * below. The MCP tool registration reads `.shape` off this schema to publish
+ * its input signature, and a refinement produces a ZodEffects, which has no
+ * `.shape`. Two schemas that each stay an object are clearer than one that
+ * cannot be introspected.
  */
-export const continueConversationSchema = z
-  .object({
-    token: z.string().trim().min(20).max(500).optional(),
-    url: z.string().trim().min(1).max(2_048).optional(),
-    provider: z.string().trim().min(1).max(80),
-    app: z.string().trim().max(120).optional(),
-    title: z.string().trim().max(240).optional(),
-    messages: z.array(messageSchema).min(1).max(500),
-  })
-  .refine((value) => Boolean(value.token) !== Boolean(value.url), {
-    message: "Provide either a token for a local handoff or a url for another instance's link, not both and not neither.",
-    path: ["token"],
-  });
+export const continueConversationSchema = z.object({
+  token: z.string().trim().min(20).max(500),
+  provider: z.string().trim().min(1).max(80),
+  app: z.string().trim().max(120).optional(),
+  title: z.string().trim().max(240).optional(),
+  messages: z.array(messageSchema).min(1).max(500),
+});
+
+/**
+ * Continuing someone else's link. The parent lives on a machine this instance
+ * does not own, so the continuation records where it came from rather than
+ * pointing at a row that exists nowhere locally.
+ */
+export const continueFromLinkSchema = z.object({
+  url: z.string().trim().min(1).max(2_048),
+  provider: z.string().trim().min(1).max(80),
+  app: z.string().trim().max(120).optional(),
+  title: z.string().trim().max(240).optional(),
+  messages: z.array(messageSchema).min(1).max(500),
+});
 
 export const analyzeSchema = z.object({
   conversationId: z.string().uuid(),

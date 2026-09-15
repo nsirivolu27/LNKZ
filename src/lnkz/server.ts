@@ -14,7 +14,7 @@ import { loadConfig } from "./config.js";
 import { connectorStatuses } from "./connectors/index.js";
 import { localContinuation, remoteContinuation } from "./continuation.js";
 import { importConversations } from "./import/index.js";
-import { fetchTransfer, TransferError } from "./transfer.js";
+import { fetchTransfer, peekTransfer, TransferError } from "./transfer.js";
 import { analyzeConversation } from "./intel/analyze.js";
 import { detectConflicts, detectDuplicates } from "./intel/conflict.js";
 import { buildContextPacket } from "./intel/packet.js";
@@ -27,6 +27,7 @@ import {
   contextPacketSchema,
   contextSearchSchema,
   continueConversationSchema,
+  continueFromLinkSchema,
   conversationInputSchema,
   createHandoffSchema,
   duplicateSchema,
@@ -168,21 +169,18 @@ app.post("/api/conversations", requireApiKey, apiLimiter, sharedApiLimiter, asyn
 app.post("/api/conversations/import-url", requireApiKey, apiLimiter, sharedApiLimiter, async (request, response) => {
   try {
     const input = importUrlSchema.parse(request.body);
-    const transfer = await fetchTransfer(input.url);
 
     if (input.dryRun) {
-      response.json({
-        origin: transfer.origin,
-        warnings: transfer.warnings,
-        preview: {
-          title: transfer.conversation.title,
-          provider: transfer.conversation.source.provider,
-          messages: transfer.conversation.messages.length,
-        },
-      });
+      // A dry run used to fetch the packet and then throw it away, which spent
+      // one of the link's uses. On a one-use link that made looking and taking
+      // mutually exclusive: the preview succeeded and the import that followed
+      // failed. It now asks the sending relay to describe the link instead.
+      const peek = await peekTransfer(input.url);
+      response.json({ origin: peek.origin, warnings: peek.warnings, preview: peek.preview });
       return;
     }
 
+    const transfer = await fetchTransfer(input.url);
     const conversation = await store.save({
       ...transfer.conversation,
       tags: [...new Set([...(transfer.conversation.tags ?? []), ...(input.tags ?? [])])],
@@ -313,9 +311,17 @@ app.get("/api/handoffs", requireApiKey, async (request, response) => {
  */
 app.post("/api/handoffs/continue", requireApiKey, apiLimiter, sharedApiLimiter, async (request, response) => {
   try {
-    const options = continueConversationSchema.parse(request.body);
+    // Two shapes, chosen by what the caller sent, because the two produce
+    // different lineage and a single refined schema could not be introspected
+    // by the MCP tool registration that shares the local one.
+    const body = request.body as { url?: unknown; token?: unknown } | undefined;
+    if (body?.url && body?.token) {
+      response.status(400).json({ error: "Provide either a token for a local handoff or a url for another instance's link, not both." });
+      return;
+    }
 
-    if (options.url) {
+    if (body?.url) {
+      const options = continueFromLinkSchema.parse(request.body);
       // Someone else's link. fetchTransfer applies the same SSRF guards as
       // import-url: http and https only, no credentials in the URL, every
       // resolved address public unless LNKZ_TRANSFER_ALLOW_PRIVATE says
@@ -337,16 +343,9 @@ app.post("/api/handoffs/continue", requireApiKey, apiLimiter, sharedApiLimiter, 
     }
 
     // A handoff minted here. The parent row is local, so the continuation can
-    // point straight at it. The schema already guarantees a token when there is
-    // no url; this reads it as a value rather than asserting one, so a future
-    // change to that refinement fails here loudly instead of passing undefined
-    // into the store.
-    const { token } = options;
-    if (!token) {
-      response.status(400).json({ error: "Provide either a token or a url." });
-      return;
-    }
-    const packet = await store.redeemHandoff(token);
+    // point straight at it.
+    const options = continueConversationSchema.parse(request.body);
+    const packet = await store.redeemHandoff(options.token);
     if (!packet) {
       response.status(404).json({ error: "Handoff is invalid, revoked, exhausted, or expired." });
       return;
@@ -380,6 +379,29 @@ app.delete("/api/handoffs/:id", requireApiKey, async (request, response) => {
     return;
   }
   response.status(204).end();
+});
+
+/**
+ * Look at a link without redeeming it.
+ *
+ * Unauthenticated for the same reason /share is: whoever holds the link is the
+ * audience. It returns a title, a provider and a count, never the transcript,
+ * so a peek cannot become a way to read someone's conversation for free.
+ *
+ * 410 rather than 404 when the link is gone. A relay old enough not to have
+ * this route answers 404 from the catch-all, and a recipient's client needs to
+ * tell "this link is dead" from "that relay cannot preview", because only one
+ * of those means stop.
+ */
+app.get("/share/:token/preview", shareLimiter, sharedShareLimiter, async (request, response) => {
+  const peek = await store.peekHandoff(pathParam(request.params.token));
+  if (!peek) {
+    response.status(410).json({ error: "Handoff is invalid, revoked, exhausted, or expired." });
+    return;
+  }
+  response.setHeader("cache-control", "no-store");
+  response.setHeader("x-robots-tag", "noindex, nofollow");
+  response.json({ format: "lnkz.preview.v1", preview: peek });
 });
 
 app.get("/share/:token", shareLimiter, sharedShareLimiter, async (request, response) => {

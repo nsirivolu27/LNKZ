@@ -1,6 +1,7 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { connectorStatuses } from "./connectors/index.js";
+import { localContinuation } from "./continuation.js";
 import { importConversations } from "./import/index.js";
 import { fetchTransfer, TransferError } from "./transfer.js";
 import { analyzeConversation } from "./intel/analyze.js";
@@ -322,20 +323,17 @@ export function createLnkzMcpServer(
       if (!packet) return toolError("Handoff is invalid, revoked, exhausted, or expired.");
 
       const parent = packet.conversation;
-      const continuation = await store.save({
-        title: options.title || `${parent.title} (continued in ${options.provider})`,
-        summary: parent.summary,
-        source: { provider: options.provider, app: options.app },
-        participants: parent.participants,
-        tags: [...new Set([...parent.tags, "continuation"])],
-        messages: [...parent.messages, ...options.messages],
-        lineage: {
-          parentId: parent.id,
-          rootId: parent.lineage?.rootId ?? parent.id,
-          handoffId: packet.handoff.id,
-          continuedBy: options.provider,
-        },
-      });
+      // The same builder the REST route uses. This was a third hand-assembled
+      // copy of the lineage rules, which is how they drift apart.
+      const continuation = await store.save(localContinuation({
+        parent,
+        parentId: parent.id,
+        handoffId: packet.handoff.id,
+        provider: options.provider,
+        app: options.app,
+        title: options.title,
+        messages: options.messages,
+      }));
 
       return ok(
         `Continued ${parent.id} as ${continuation.id} in ${options.provider}, carrying ${parent.messages.length} prior message(s).`,

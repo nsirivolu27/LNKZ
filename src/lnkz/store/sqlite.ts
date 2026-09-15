@@ -17,6 +17,7 @@ import type {
   HandoffIssue,
   HandoffOptions,
   HandoffPacket,
+  HandoffPeek,
   HandoffSummary,
   ListOptions,
   MessageInput,
@@ -298,6 +299,47 @@ export class SqliteConversationStore implements ConversationStore {
     });
 
     return { id, token, expiresAt, maxUses, audience: options.audience, redact: Boolean(options.redact) };
+  }
+
+  /**
+   * Look without spending a use.
+   *
+   * import-url's dry run and the phone's preview both used to go through
+   * redeemHandoff, which meant looking at a one-use link consumed it and the
+   * real import that followed failed. A peek answers the only question a
+   * recipient has before committing, and answers it without touching uses.
+   *
+   * It does record the peek as an audit event, because the sender should still
+   * be able to see that their link was looked at.
+   */
+  async peekHandoff(token: string): Promise<HandoffPeek | null> {
+    const now = new Date().toISOString();
+    const row = this.db
+      .prepare("SELECT * FROM handoffs WHERE token_hash = ?")
+      .get(hashToken(token)) as unknown as HandoffRow | undefined;
+    if (!row) return null;
+    if (row.revoked_at || row.expires_at <= now || row.uses >= row.max_uses) return null;
+
+    const conversation = await this.get(row.conversation_id);
+    if (!conversation) return null;
+
+    this.recordEventSync({
+      kind: "handoff.previewed",
+      conversationId: row.conversation_id,
+      handoffId: row.id,
+      detail: { usesRemaining: row.max_uses - row.uses },
+    });
+
+    return {
+      handoffId: row.id,
+      title: conversation.title,
+      provider: conversation.source.provider,
+      messageCount: conversation.messages.length,
+      usesRemaining: row.max_uses - row.uses,
+      expiresAt: row.expires_at,
+      audience: row.audience ?? undefined,
+      redact: Boolean(row.redact),
+    };
   }
 
   async redeemHandoff(token: string): Promise<HandoffPacket | null> {

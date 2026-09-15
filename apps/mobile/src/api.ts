@@ -99,11 +99,24 @@ export interface TransferOrigin {
   conversationId?: string;
 }
 
-/** What a link contains, before deciding whether to keep it. */
+/**
+ * What a link contains, before deciding whether to keep it.
+ *
+ * Never the transcript. The sending relay answers this without redeeming, so
+ * a preview must not become a way to read someone's conversation for free, and
+ * looking must not cost the recipient one of the link's uses.
+ */
 export interface ImportPreview {
-  origin: TransferOrigin;
+  origin: { instance: string; url: string };
   warnings: string[];
-  preview: { title: string; provider: string; messages: number };
+  preview: {
+    title: string;
+    provider: string;
+    messages: number;
+    usesRemaining: number;
+    expiresAt: string;
+    redact: boolean;
+  };
 }
 
 export class ApiError extends Error {

@@ -16,6 +16,7 @@ import type {
   HandoffIssue,
   HandoffOptions,
   HandoffPacket,
+  HandoffPeek,
   HandoffSummary,
   ListOptions,
   MessageInput,
@@ -213,6 +214,55 @@ export class PostgresConversationStore implements ConversationStore {
         detail: { ttlMinutes, maxUses, redact: Boolean(options.redact), audience: options.audience },
       });
       return { id, token, expiresAt, maxUses, audience: options.audience, redact: Boolean(options.redact) };
+    });
+  }
+
+  /**
+   * Look without spending a use. The SQLite implementation carries the reason
+   * this exists; the shape of the query is the only difference: a select rather
+   * than the update-returning that redemption uses, with the same four
+   * conditions so a revoked, expired or exhausted link is invisible here too.
+   */
+  async peekHandoff(token: string): Promise<HandoffPeek | null> {
+    return this.transaction(async (client) => {
+      await client.query("select set_config('app.handoff_token_hash', $1, true)", [hashToken(token)]);
+      const result = await client.query<HandoffRow>(
+        `select id, workspace_id, conversation_id, token_hash, created_at, expires_at,
+                max_uses, uses, revoked_at, audience, note, redact
+           from handoffs
+          where token_hash = $1
+            and revoked_at is null
+            and expires_at > now()
+            and uses < max_uses`,
+        [hashToken(token)],
+      );
+      if (!result.rows.length) return null;
+
+      const row = result.rows[0];
+      await client.query("select set_config('app.workspace_id', $1, true)", [row.workspace_id]);
+      const conversation = await this.loadConversation(client, row.conversation_id);
+      if (!conversation) return null;
+
+      await this.recordEventWithClient(client, {
+        kind: "handoff.previewed",
+        conversationId: row.conversation_id,
+        handoffId: row.id,
+        detail: { usesRemaining: row.max_uses - row.uses },
+      });
+
+      return {
+        handoffId: row.id,
+        title: conversation.title,
+        provider: conversation.source.provider,
+        messageCount: conversation.messages.length,
+        usesRemaining: row.max_uses - row.uses,
+        // Same handling as redeemHandoff: the driver hands this back as the
+        // row's own value, and both paths return it unchanged so a caller
+        // cannot tell which one produced the timestamp.
+        expiresAt: row.expires_at,
+        audience: row.audience ?? undefined,
+        redact: Boolean(row.redact),
+      };
     });
   }
 

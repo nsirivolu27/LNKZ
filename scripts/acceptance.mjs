@@ -32,6 +32,7 @@ import { join } from "node:path";
 const directory = await mkdtemp(join(tmpdir(), "lnkz-acceptance-"));
 const running = [];
 let step = 0;
+let passed = false;
 
 /** A planted secret, so redaction has something visible to strip. */
 const PLANTED_CREDENTIAL = "sk-live-4f9c2b7e1a8d6035e2c4a90b7d15f8e3";
@@ -93,15 +94,26 @@ try {
   );
   pass("A builds a context packet within a token budget, carrying decisions and questions");
 
-  // 5. A scoped handoff. Redaction on, so the planted credential must not leave.
+  // 5. A scoped handoff. One use, so looking at it and taking it cannot both
+  // work unless looking is genuinely free. Redaction on, so the planted
+  // credential must not leave.
   const handoff = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
-    ttlMinutes: 10, maxUses: 2, audience: "a colleague", redact: true,
+    ttlMinutes: 10, maxUses: 1, audience: "a colleague", redact: true,
   });
   assert.ok(handoff.shareUrl, "A did not return a share url");
   assert.ok(handoff.id, "A did not return a handoff id, so it cannot be revoked");
-  pass("A creates a redacted handoff with an expiry and a use limit");
+  pass("A creates a redacted one-use handoff with an expiry");
 
-  // 6. B pulls it. B never pushed anything to A and A never pushed to B.
+  // 6. Look before taking. This is the regression test: a dry run used to
+  // redeem the link, so on a one-use link the preview succeeded and the import
+  // that followed failed. Peeking twice here would have spent it twice over.
+  const firstLook = await call(b, "POST", "/api/conversations/import-url", { url: handoff.shareUrl, dryRun: true });
+  assert.equal(firstLook.preview.messages, 4, "the preview did not describe the conversation");
+  const secondLook = await call(b, "POST", "/api/conversations/import-url", { url: handoff.shareUrl, dryRun: true });
+  assert.equal(secondLook.preview.usesRemaining, 1, `looking at the link spent a use; ${secondLook.preview.usesRemaining} left after two previews`);
+  pass("previewing the link twice does not spend its single use");
+
+  // 7. B pulls it. B never pushed anything to A and A never pushed to B.
   const imported = (await call(b, "POST", "/api/conversations/import-url", { url: handoff.shareUrl })).conversation;
   const onB = (await call(b, "GET", `/api/conversations/${imported.id}`)).conversation;
   assert.notEqual(onB.id, original.id, "B reused A's id instead of assigning its own");
@@ -115,11 +127,24 @@ try {
   assert.ok(!bodyOnB.includes(PLANTED_CREDENTIAL), "the planted credential crossed to B despite redaction being on");
   pass("redaction stripped the planted credential before it left A");
 
-  // 7 and 8. The heart of it. B continues the work under a different provider,
-  // and the result is a NEW conversation on B that knows its parent and its
-  // root, not an edit of the imported copy.
+  // The link is now spent. A second attempt must fail, and this is the only
+  // place exhaustion is proved; the revocation step below uses a fresh link so
+  // the two cannot be confused for each other.
+  await assert.rejects(
+    () => call(b, "POST", "/api/conversations/import-url", { url: handoff.shareUrl }),
+    /invalid, revoked, exhausted, or expired|422/,
+    "a one-use link was redeemable twice",
+  );
+  pass("the one-use link is spent after a single import");
+
+  // 8 and 9. The heart of it. B continues the work under a different provider,
+  // and the result is a NEW conversation on B that knows its root, not an edit
+  // of the imported copy. A fresh link, because the first one is spent.
+  const forContinuing = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
+    ttlMinutes: 10, maxUses: 1, redact: true,
+  });
   const continued = (await call(b, "POST", "/api/handoffs/continue", {
-    url: handoff.shareUrl,
+    url: forContinuing.shareUrl,
     provider: "claude",
     messages: [{ role: "assistant", content: "Agreed. SQLite now, and we revisit at ten nodes as noted." }],
   })).conversation;
@@ -137,11 +162,25 @@ try {
   assert.ok(JSON.stringify(stillOnA).includes(PLANTED_CREDENTIAL), "A's own copy was redacted; redaction is for the packet leaving, not the stored original");
   pass("A's original is unchanged by anything B did");
 
-  // 10. Revocation stops further use, immediately and on both paths.
-  await call(a, "DELETE", `/api/handoffs/${handoff.id}`);
-  const afterRevoke = await fetch(handoff.shareUrl);
+  // 11. Revocation, on a link with uses left. Revoking an already-exhausted
+  // link proves nothing: it was already refusing. This one has never been used.
+  const toRevoke = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
+    ttlMinutes: 10, maxUses: 5, redact: true,
+  });
+  const beforeRevoke = await fetch(toRevoke.shareUrl + "/preview");
+  assert.equal(beforeRevoke.status, 200, "a fresh link was not redeemable before revocation, so the test proves nothing");
+
+  await call(a, "DELETE", `/api/handoffs/${toRevoke.id}`);
+  const afterRevoke = await fetch(toRevoke.shareUrl);
   assert.equal(afterRevoke.status, 404, `a revoked link still redeemed, status ${afterRevoke.status}`);
-  pass("revoking the handoff stops further redemption");
+  await assert.rejects(
+    () => call(b, "POST", "/api/handoffs/continue", {
+      url: toRevoke.shareUrl, provider: "claude", messages: [{ role: "assistant", content: "Too late." }],
+    }),
+    /invalid, revoked, exhausted, or expired|422/,
+    "a revoked link could still be continued",
+  );
+  pass("revoking a link with four uses left stops redemption on both paths");
 
   // 11. Restart B on the same database. Nothing may be lost.
   await stop(b);
@@ -151,14 +190,30 @@ try {
   assert.equal(survived.messages.length, continued.messages.length, "messages did not survive a restart of B");
   pass("B restarts and the continuation is still there with its lineage");
 
-  console.log("\nPASS: the MVP gate is met.");
+  passed = true;
 } catch (error) {
   console.error(`\nFAIL at step ${step + 1}: ${error.message}`);
   if (error.cause) console.error(`  cause: ${error.cause}`);
   process.exitCode = 1;
 } finally {
-  for (const service of running) await stop(service);
-  await rm(directory, { recursive: true, force: true });
+  // Iterate a copy. stop() removes the service from `running`, and mutating the
+  // array being iterated skipped every second relay, which left a process alive
+  // holding its database file open.
+  for (const service of [...running]) await stop(service);
+
+  try {
+    // Windows will not unlink a SQLite file the moment the process holding it
+    // exits, so a single attempt reports EBUSY on a run that was otherwise
+    // fine. Retry briefly, and treat a leftover temp directory as untidy
+    // rather than as a failed acceptance run.
+    await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+  } catch (error) {
+    console.warn(`\nNote: could not remove ${directory} (${error.code ?? error.message}). Temporary files were left behind.`);
+  }
+
+  // Printed last, and only from here, so a cleanup problem can never appear
+  // after the word PASS and make a clean run look broken.
+  if (passed) console.log("\nPASS: the MVP gate is met.");
 }
 
 /**

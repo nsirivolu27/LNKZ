@@ -229,3 +229,65 @@ test("continuing a handoff takes either a local token or a remote url, never bot
   const neither = continueConversationSchema.safeParse({ provider: "claude", messages });
   assert.equal(neither.success, false, "a request naming neither a token nor a url was accepted");
 });
+
+test("looking at a handoff does not spend one of its uses", async () => {
+  // A dry run used to fetch the packet and discard it, which redeemed the link.
+  // On a one-use link that made looking and taking mutually exclusive: the
+  // preview worked and the import immediately after it failed. The peek path
+  // exists so a recipient can decide without paying for the decision.
+  const store = new SqliteConversationStore(":memory:");
+  try {
+    const conversation = await store.save({
+      title: "Worth a look first",
+      source: { provider: "chatgpt" },
+      messages: [
+        { role: "user", content: "Is this the thread about the store choice?" },
+        { role: "assistant", content: "We decided to use SQLite for the single node case." },
+      ],
+    });
+    const handoff = await store.createHandoff({ conversationId: conversation.id, ttlMinutes: 60, maxUses: 1 });
+
+    for (const attempt of [1, 2, 3]) {
+      const peek = await store.peekHandoff(handoff.token);
+      assert.ok(peek, `peek ${attempt} found nothing, so a look consumed the link`);
+      assert.equal(peek.usesRemaining, 1, `peek ${attempt} saw ${peek.usesRemaining} uses left`);
+      assert.equal(peek.title, conversation.title);
+      assert.equal(peek.messageCount, 2);
+    }
+
+    // A peek must not be a way to read the transcript without redeeming.
+    const peek = await store.peekHandoff(handoff.token);
+    assert.ok(peek && !("messages" in peek), "the peek carried the transcript");
+
+    // The single use is still there for the real import.
+    const redeemed = await store.redeemHandoff(handoff.token);
+    assert.ok(redeemed, "the link could not be redeemed after being looked at");
+    assert.equal(redeemed.conversation.messages.length, 2);
+
+    // And now it is spent, for both looking and taking.
+    assert.equal(await store.redeemHandoff(handoff.token), null, "a one-use link was redeemable twice");
+    assert.equal(await store.peekHandoff(handoff.token), null, "an exhausted link is still previewable");
+  } finally {
+    store.close();
+  }
+});
+
+test("a revoked handoff disappears from both looking and taking, with uses left", async () => {
+  const store = new SqliteConversationStore(":memory:");
+  try {
+    const conversation = await store.save({
+      title: "Recalled",
+      source: { provider: "local" },
+      messages: [{ role: "user", content: "Sent by mistake." }],
+    });
+    // Five uses, none spent: revocation has to be what stops it, not exhaustion.
+    const handoff = await store.createHandoff({ conversationId: conversation.id, ttlMinutes: 60, maxUses: 5 });
+    assert.ok(await store.peekHandoff(handoff.token), "the link was not live before revocation");
+
+    assert.equal(await store.revokeHandoff(handoff.id), true);
+    assert.equal(await store.peekHandoff(handoff.token), null, "a revoked link was still previewable");
+    assert.equal(await store.redeemHandoff(handoff.token), null, "a revoked link was still redeemable");
+  } finally {
+    store.close();
+  }
+});
