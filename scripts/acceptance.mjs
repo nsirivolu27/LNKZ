@@ -171,8 +171,24 @@ try {
   assert.equal(beforeRevoke.status, 200, "a fresh link was not redeemable before revocation, so the test proves nothing");
 
   await call(a, "DELETE", `/api/handoffs/${toRevoke.id}`);
+
+  // All four ways in, because closing three of them is not closing the door.
   const afterRevoke = await fetch(toRevoke.shareUrl);
   assert.equal(afterRevoke.status, 404, `a revoked link still redeemed, status ${afterRevoke.status}`);
+
+  const previewAfterRevoke = await fetch(toRevoke.shareUrl + "/preview");
+  assert.equal(previewAfterRevoke.status, 410, `a revoked link was still previewable, status ${previewAfterRevoke.status}`);
+
+  await assert.rejects(
+    () => call(b, "POST", "/api/conversations/import-url", { url: toRevoke.shareUrl }),
+    /invalid, revoked, exhausted, or expired|422/,
+    "a revoked link could still be imported",
+  );
+  await assert.rejects(
+    () => call(b, "POST", "/api/conversations/import-url", { url: toRevoke.shareUrl, dryRun: true }),
+    /invalid, revoked, exhausted, or expired|422/,
+    "a revoked link could still be inspected by a dry run",
+  );
   await assert.rejects(
     () => call(b, "POST", "/api/handoffs/continue", {
       url: toRevoke.shareUrl, provider: "claude", messages: [{ role: "assistant", content: "Too late." }],
@@ -180,7 +196,19 @@ try {
     /invalid, revoked, exhausted, or expired|422/,
     "a revoked link could still be continued",
   );
-  pass("revoking a link with four uses left stops redemption on both paths");
+  pass("revoking a link with four uses left closes redemption, preview, import and continuation");
+
+  // Before handing it back, B carries the work a little further with a plain
+  // follow-up. This is the step a person actually takes between receiving
+  // something and returning it, and it is the only place the append route is
+  // exercised across the whole journey.
+  const withFollowUp = (await call(b, "POST", `/api/conversations/${continued.id}/messages`, {
+    messages: [{ role: "user", content: "Checked the write volume. Still well inside what one node handles." }],
+  })).conversation;
+  assert.equal(withFollowUp.messages.length, continued.messages.length + 1, "B's follow-up was not stored");
+  assert.equal(withFollowUp.id, continued.id, "appending a message created a new conversation instead of extending one");
+  assert.equal(withFollowUp.lineage?.rootId, original.id, "appending a message lost the chain root");
+  pass("B adds a follow-up turn to the conversation it continued");
 
   // 12. Two devices, two keys. Separate databases are visible in the ids above;
   // separate credentials are not, and a shared key would make every isolation
@@ -222,6 +250,10 @@ try {
   // elsewhere, and coming back, A can still walk from the returned copy to the
   // conversation it started with.
   assert.equal(returned.lineage?.rootId, original.id, "the chain root did not survive the round trip");
+  assert.ok(
+    returned.messages.some((message) => message.content.includes("Still well inside what one node handles")),
+    "B's follow-up did not come back to A with the conversation",
+  );
   const root = (await call(a, "GET", `/api/conversations/${returned.lineage.rootId}`)).conversation;
   assert.equal(root.id, original.id, "the root resolved to something other than A's original");
   assert.equal(root.messages.length, 4, "the root is not the untouched original");
@@ -235,7 +267,8 @@ try {
 
   const survivedOnB = (await call(bAgain, "GET", `/api/conversations/${continued.id}`)).conversation;
   assert.equal(survivedOnB.lineage?.rootId, original.id, "lineage did not survive a restart of B");
-  assert.equal(survivedOnB.messages.length, continued.messages.length, "messages did not survive a restart of B");
+  // Against the count after B's follow-up, not the count at continuation time.
+  assert.equal(survivedOnB.messages.length, withFollowUp.messages.length, "messages did not survive a restart of B");
 
   const survivedOnA = (await call(aAgain, "GET", `/api/conversations/${returned.id}`)).conversation;
   assert.equal(survivedOnA.lineage?.rootId, original.id, "lineage did not survive a restart of A");
