@@ -117,6 +117,12 @@ variable names are compatibility contracts.
 - `GET /api/context/conflicts`, `GET /api/context/duplicates`
 - `GET /api/connectors`, `GET /api/stats`, `GET /api/events`
 - `GET /share/:token` for bearer handoff redemption
+- `GET /share/:token/preview` for the same link without redeeming it: title,
+  provider and message count only, never the transcript. Answers `410` when the
+  link is dead, which is how a caller tells that apart from the `404` an older
+  relay returns for a route it does not have.
+- `POST /api/handoffs/continue` takes either a `token` for a handoff minted here
+  or a `url` for another instance's link, and never both.
 - `POST /api/publish/prepare`, `GET /api/publish/targets`, `GET /api/graph`
 
 Configuration and defaults are documented in [DEPLOY.md](DEPLOY.md).
