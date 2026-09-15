@@ -24,7 +24,9 @@ import {
   type Conversation,
   type ConversationSummary,
   type HandoffSummary,
+  type ImportPreview,
   type IssuedHandoff,
+  type Lineage,
   type Packet,
   type Stats,
 } from "./src/api";
@@ -81,7 +83,10 @@ function ConnectionScreen({ onConnected }: { onConnected: (connection: StoredCon
     try {
       const normalized = normalizeBaseUrl(baseUrl);
       const candidate = { baseUrl: normalized, apiKey: apiKey.trim() };
-      await new LnkzClient(candidate.baseUrl, candidate.apiKey).stats();
+      // /ready first, then an authenticated call. Separating them is what lets
+      // the error say whether the URL is wrong or the key is, instead of one
+      // "could not connect" covering both.
+      await new LnkzClient(candidate.baseUrl, candidate.apiKey).checkConnection();
       await saveConnection(candidate);
       onConnected(candidate);
     } catch (cause) {
@@ -288,19 +293,47 @@ function Library({ client, conversations, selected, selectedId, busy, onOpen }: 
       ))}
       {!results.length ? <Empty>No matching conversations.</Empty> : null}
       {busy === "conversation" ? <ActivityIndicator color="#0b0c0b" /> : null}
-      {selected ? <ConversationDetail value={selected} /> : null}
+      {selected ? <ConversationDetail client={client} value={selected} onChanged={() => onOpen(selected.conversation.id)} /> : null}
     </View>
   );
 }
 
-function ConversationDetail({ value }: { value: { conversation: Conversation; analysis: Analysis } }) {
+function ConversationDetail({ client, value, onChanged }: {
+  client: LnkzClient;
+  value: { conversation: Conversation; analysis: Analysis };
+  onChanged: () => Promise<void>;
+}) {
+  const [followUp, setFollowUp] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState("");
+
+  const save = async () => {
+    const content = followUp.trim();
+    if (!content) { setProblem("Write something first."); return; }
+    setSaving(true);
+    setProblem("");
+    try {
+      await client.appendMessage(value.conversation.id, { role: "user", content });
+      // Only cleared once the server has it. Losing what someone typed because
+      // a request failed is the fastest way to make an app untrustworthy.
+      setFollowUp("");
+      await onChanged();
+    } catch (cause) {
+      setProblem(messageOf(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <View style={styles.detailCard}>
       <Text style={styles.detailLabel}>SELECTED THREAD</Text>
       <Text style={styles.detailTitle}>{value.conversation.title}</Text>
       <Text style={styles.meta}>{value.conversation.source.provider} · {value.analysis.approxTokens} APPROX TOKENS</Text>
+      <Provenance lineage={value.conversation.lineage} />
       <ClaimList title="DECISIONS" values={value.analysis.decisions.map((item) => item.text)} />
       <ClaimList title="OPEN QUESTIONS" values={value.analysis.openQuestions.map((item) => item.text)} />
+      <ClaimList title="ACTIONS" values={value.analysis.actionItems.map((item) => item.text)} />
       <SectionTitle>TRANSCRIPT</SectionTitle>
       {value.conversation.messages.map((message) => (
         <View key={message.id} style={[styles.message, message.role === "assistant" && styles.assistantMessage]}>
@@ -308,6 +341,39 @@ function ConversationDetail({ value }: { value: { conversation: Conversation; an
           <Text style={styles.messageText}>{message.content}</Text>
         </View>
       ))}
+      <SectionTitle>ADD A FOLLOW-UP</SectionTitle>
+      <TextInput multiline textAlignVertical="top" style={styles.textarea} value={followUp} onChangeText={setFollowUp} placeholder="What happened next…" placeholderTextColor="#77776f" />
+      {problem ? <Text style={styles.hint}>{problem}</Text> : null}
+      <Action label={saving ? "SAVING…" : "SAVE FOLLOW-UP →"} onPress={save} disabled={saving} secondary />
+    </View>
+  );
+}
+
+/**
+ * Where this conversation came from, when it did not start here.
+ *
+ * A locally authored conversation shows nothing: an empty provenance block on
+ * every thread would train people to ignore the one that matters. An imported
+ * one names the instance rather than only the id, because an id on its own is
+ * not an address and tells a person nothing.
+ */
+function Provenance({ lineage }: { lineage?: Lineage }) {
+  if (!lineage?.originInstance && !lineage?.continuedBy && !lineage?.parentId) return null;
+  return (
+    <View style={styles.provenance}>
+      <Text style={styles.detailLabel}>WHERE THIS CAME FROM</Text>
+      {lineage.originInstance ? (
+        <Text style={styles.meta}>Handed over by {lineage.originInstance}</Text>
+      ) : null}
+      {lineage.continuedBy ? (
+        <Text style={styles.meta}>Continued in {lineage.continuedBy}</Text>
+      ) : null}
+      {lineage.importedAt ? (
+        <Text style={styles.meta}>Arrived {new Date(lineage.importedAt).toLocaleString()}</Text>
+      ) : null}
+      {lineage.rootId ? (
+        <Text style={styles.hint}>Chain root {lineage.rootId}</Text>
+      ) : null}
     </View>
   );
 }
@@ -349,6 +415,92 @@ function ImportView({ client, busy, setBusy, onImported, setError }: {
       <TextInput multiline textAlignVertical="top" style={styles.textarea} value={payload} onChangeText={setPayload} placeholder="Paste ChatGPT, Claude, Gemini, Markdown, JSON, or plain text…" placeholderTextColor="#77776f" />
       <Text style={styles.hint}>LNKZ detects the format and preserves the original message order.</Text>
       <Action label={busy === "import" ? "IMPORTING…" : "IMPORT CONVERSATION →"} onPress={run} disabled={busy === "import"} />
+      <View style={styles.divider} />
+      <ReceiveLink client={client} onReceived={onImported} setError={setError} />
+    </View>
+  );
+}
+
+/**
+ * Taking a handoff someone sent you.
+ *
+ * Two different things can happen with a link, and conflating them is how the
+ * chain gets lost. Importing keeps a copy and records where it came from.
+ * Continuing does that and adds your turn as a new conversation that says which
+ * client carried the work forward. Editing an imported copy afterwards looks
+ * the same on screen and leaves nothing saying the work moved on.
+ *
+ * Preview first, always. A share link is a bearer link: whoever holds it can
+ * redeem it, and every redemption spends one of its uses. Showing what is
+ * inside before committing means nobody burns a one-use link finding out.
+ */
+function ReceiveLink({ client, onReceived, setError }: {
+  client: LnkzClient;
+  onReceived: (conversation: ConversationSummary) => Promise<void>;
+  setError: (value: string) => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [provider, setProvider] = useState("claude");
+  const [reply, setReply] = useState("");
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [working, setWorking] = useState("");
+
+  const look = async () => {
+    if (!url.trim()) { setError("Paste the handoff link first."); return; }
+    setWorking("preview");
+    setError("");
+    try {
+      setPreview(await client.previewLink(url.trim()));
+    } catch (cause) {
+      setPreview(null);
+      setError(messageOf(cause));
+    } finally {
+      setWorking("");
+    }
+  };
+
+  const take = async (mode: "copy" | "continue") => {
+    if (!url.trim()) { setError("Paste the handoff link first."); return; }
+    if (mode === "continue" && !reply.trim()) { setError("Write the turn you are adding."); return; }
+    setWorking(mode);
+    setError("");
+    try {
+      const result = mode === "copy"
+        ? await client.importLink(url.trim())
+        : await client.continueFromLink({ url: url.trim(), provider: provider.trim() || "claude", content: reply.trim() });
+      setUrl("");
+      setReply("");
+      setPreview(null);
+      await onReceived(result.conversation);
+    } catch (cause) {
+      // Deliberately leaves the link and the reply in place. A failed redemption
+      // is often a link that expired or a relay that was asleep, and retyping
+      // a paragraph to retry is the wrong tax for that.
+      setError(messageOf(cause));
+    } finally {
+      setWorking("");
+    }
+  };
+
+  return (
+    <View>
+      <Text style={styles.eyebrow}>RECEIVE / A LINK SOMEONE SENT YOU</Text>
+      <Field label="HANDOFF LINK" value={url} onChangeText={setUrl} autoCapitalize="none" placeholder="https://their-relay.example.com/share/…" />
+      <Action label={working === "preview" ? "LOOKING…" : "PREVIEW LINK"} onPress={() => void look()} secondary disabled={Boolean(working)} />
+      {preview ? (
+        <View style={styles.provenance}>
+          <Text style={styles.detailLabel}>{preview.preview.title}</Text>
+          <Text style={styles.meta}>{preview.preview.provider} · {preview.preview.messages} MESSAGES</Text>
+          <Text style={styles.meta}>From {preview.origin.instance}</Text>
+          {preview.warnings.map((warning) => <Text key={warning} style={styles.hint}>{warning}</Text>)}
+        </View>
+      ) : null}
+      <Field label="CONTINUE IN" value={provider} onChangeText={setProvider} autoCapitalize="none" placeholder="claude, gemini, chatgpt…" />
+      <Text style={styles.fieldLabel}>YOUR TURN (FOR CONTINUING)</Text>
+      <TextInput multiline textAlignVertical="top" style={styles.textarea} value={reply} onChangeText={setReply} placeholder="What you are adding on top of their work…" placeholderTextColor="#77776f" />
+      <Action label={working === "continue" ? "CONTINUING…" : "CONTINUE IT HERE →"} onPress={() => void take("continue")} disabled={Boolean(working)} />
+      <Action label={working === "copy" ? "IMPORTING…" : "JUST KEEP A COPY"} onPress={() => void take("copy")} secondary disabled={Boolean(working)} />
+      <Text style={styles.hint}>Continuing records which client carried the work forward. A copy does not.</Text>
     </View>
   );
 }
@@ -584,6 +736,7 @@ const styles = StyleSheet.create({
   divider: { height: 1, marginVertical: 18, backgroundColor: "#0b0c0b" },
   empty: { borderWidth: 1, borderColor: "#0b0c0b", padding: 14, color: "#66665f", fontSize: 11 },
   detailCard: { marginTop: 24, borderWidth: 2, borderColor: "#0b0c0b", padding: 14, backgroundColor: "#ebe8df" },
+  provenance: { marginTop: 12, paddingLeft: 10, borderLeftWidth: 3, borderLeftColor: "#1f6f3f" },
   detailLabel: { fontSize: 8, fontWeight: "900", letterSpacing: 1 },
   detailTitle: { marginTop: 8, fontSize: 19, fontWeight: "900", lineHeight: 23 },
   claim: { marginBottom: 6, fontSize: 11, lineHeight: 16 },

@@ -26,6 +26,7 @@ export interface Analysis {
 
 export interface Conversation extends ConversationSummary {
   messages: { id: string; role: string; content: string; author?: string; createdAt: string }[];
+  lineage?: Lineage;
 }
 
 export interface HandoffSummary {
@@ -71,6 +72,38 @@ export interface IssuedHandoff {
   shareUrl: string;
   expiresAt: string;
   maxUses: number;
+}
+
+/**
+ * Where a conversation came from, and what it is a continuation of.
+ *
+ * Shown rather than hidden: the whole reason to hand a conversation to someone
+ * is that they can see it is not theirs and where it started. A bare id is not
+ * useful to a person, so the screen pairs originConversationId with
+ * originInstance, which together are an address.
+ */
+export interface Lineage {
+  parentId?: string;
+  rootId?: string;
+  handoffId?: string;
+  continuedBy?: string;
+  originInstance?: string;
+  originConversationId?: string;
+  importedAt?: string;
+}
+
+export interface TransferOrigin {
+  instance: string;
+  url: string;
+  handoffId?: string;
+  conversationId?: string;
+}
+
+/** What a link contains, before deciding whether to keep it. */
+export interface ImportPreview {
+  origin: TransferOrigin;
+  warnings: string[];
+  preview: { title: string; provider: string; messages: number };
 }
 
 export class ApiError extends Error {
@@ -160,8 +193,9 @@ export class LnkzClient {
     return this.request<{ connectors: ConnectorStatus[] }>("/api/connectors");
   }
 
-  listConversations(limit = 50) {
-    return this.request<{ conversations: ConversationSummary[] }>(`/api/conversations?limit=${limit}`);
+  listConversations(limit = 50, offset = 0) {
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    return this.request<{ conversations: ConversationSummary[] }>(`/api/conversations?${query.toString()}`);
   }
 
   searchConversations(query: string) {
@@ -205,6 +239,74 @@ export class LnkzClient {
 
   revokeHandoff(id: string) {
     return this.request<void>(`/api/handoffs/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  /**
+   * Look at a link before taking it. Nothing is stored by a dry run, so this is
+   * safe to call on a link someone sent you and were vague about.
+   */
+  previewLink(url: string) {
+    return this.request<ImportPreview>("/api/conversations/import-url", {
+      method: "POST",
+      body: JSON.stringify({ url, dryRun: true }),
+    });
+  }
+
+  /** Take a copy of someone else's conversation, keeping where it came from. */
+  importLink(url: string, tags: string[] = []) {
+    return this.request<{ conversation: Conversation; origin: TransferOrigin; warnings: string[] }>(
+      "/api/conversations/import-url",
+      { method: "POST", body: JSON.stringify({ url, tags, dryRun: false }) },
+    );
+  }
+
+  /**
+   * Carry someone else's conversation forward here, as a new conversation that
+   * records which provider continued it and what it came from.
+   *
+   * Not the same as importing and then adding a message. That edits the copy
+   * and leaves nothing saying the work moved on, which is the distinction the
+   * relay exists to preserve.
+   */
+  continueFromLink(input: { url: string; provider: string; app?: string; title?: string; content: string }) {
+    return this.request<{ conversation: Conversation; origin: TransferOrigin; warnings: string[] }>(
+      "/api/handoffs/continue",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          url: input.url,
+          provider: input.provider,
+          app: input.app,
+          title: input.title,
+          messages: [{ role: "assistant", content: input.content }],
+        }),
+      },
+    );
+  }
+
+  /** Add a turn to a conversation already stored here. */
+  appendMessage(conversationId: string, input: { role: "user" | "assistant"; content: string; author?: string }) {
+    return this.request<{ conversation: Conversation }>(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages`,
+      { method: "POST", body: JSON.stringify({ messages: [input] }) },
+    );
+  }
+
+  deleteConversation(id: string) {
+    return this.request<void>(`/api/conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  /**
+   * Is this URL a LNKZ relay, and does this key work on it?
+   *
+   * /ready is unauthenticated, so a failure there is the server or the URL. The
+   * stats call that follows is authenticated, so a failure there is the key.
+   * Separating them is what lets the connection screen say which one is wrong
+   * instead of "could not connect".
+   */
+  async checkConnection(): Promise<void> {
+    await this.request<unknown>("/ready");
+    await this.stats();
   }
 }
 
