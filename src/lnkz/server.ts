@@ -12,12 +12,12 @@ import {
 } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { connectorStatuses } from "./connectors/index.js";
-import { localContinuation, remoteContinuation } from "./continuation.js";
 import { importConversations } from "./import/index.js";
 import { fetchTransfer, peekTransfer, TransferError } from "./transfer.js";
 import { analyzeConversation } from "./intel/analyze.js";
 import { detectConflicts, detectDuplicates } from "./intel/conflict.js";
 import { buildContextPacket } from "./intel/packet.js";
+import { mountHandoffRoutes } from "./handoffs/wire.js";
 import { mountSurfaceRoutes } from "./surfaces.js";
 import { createLnkzMcpServer, LNKZ_VERSION } from "./mcp.js";
 import {
@@ -26,10 +26,7 @@ import {
   conflictSchema,
   contextPacketSchema,
   contextSearchSchema,
-  continueConversationSchema,
-  continueFromLinkSchema,
   conversationInputSchema,
-  createHandoffSchema,
   duplicateSchema,
   importSchema,
   importUrlSchema,
@@ -288,135 +285,11 @@ mountSurfaceRoutes(app, store, requireApiKey);
 
 // ----------------------------------------------------------------------- handoffs
 
-app.post("/api/conversations/:id/handoffs", requireApiKey, apiLimiter, sharedApiLimiter, async (request, response) => {
-  try {
-    const options = createHandoffSchema.parse({ ...request.body, conversationId: pathParam(request.params.id) });
-    const handoff = await store.createHandoff(options);
-    response.status(201).json({ ...handoff, shareUrl: `${publicBaseUrl.replace(/\/$/, "")}/share/${handoff.token}` });
-  } catch (error) {
-    badRequest(response, error);
-  }
-});
-
-app.get("/api/handoffs", requireApiKey, async (request, response) => {
-  response.json({ handoffs: await store.listHandoffs(stringParam(request.query.conversationId)) });
-});
-
-/**
- * Redeem a handoff and store the continuation as a new conversation.
- *
- * Redemption alone is `GET /share/:token` and is deliberately unauthenticated,
- * because a share link has to work for someone who has no key. Continuing is a
- * write into this workspace, so it takes a key and lives here instead.
- */
-app.post("/api/handoffs/continue", requireApiKey, apiLimiter, sharedApiLimiter, async (request, response) => {
-  try {
-    // Two shapes, chosen by what the caller sent, because the two produce
-    // different lineage and a single refined schema could not be introspected
-    // by the MCP tool registration that shares the local one.
-    const body = request.body as { url?: unknown; token?: unknown } | undefined;
-    if (body?.url && body?.token) {
-      response.status(400).json({ error: "Provide either a token for a local handoff or a url for another instance's link, not both." });
-      return;
-    }
-
-    if (body?.url) {
-      const options = continueFromLinkSchema.parse(request.body);
-      // Someone else's link. fetchTransfer applies the same SSRF guards as
-      // import-url: http and https only, no credentials in the URL, every
-      // resolved address public unless LNKZ_TRANSFER_ALLOW_PRIVATE says
-      // otherwise, a size cap and a timeout. There is no separate path here
-      // and no relaxed check for "trusted" links.
-      const transfer = await fetchTransfer(options.url);
-
-      const conversation = await store.save(remoteContinuation({
-        parent: transfer.conversation,
-        origin: transfer.origin,
-        provider: options.provider,
-        app: options.app,
-        title: options.title,
-        messages: options.messages,
-      }));
-
-      response.status(201).json({ conversation, origin: transfer.origin, warnings: transfer.warnings });
-      return;
-    }
-
-    // A handoff minted here. The parent row is local, so the continuation can
-    // point straight at it.
-    const options = continueConversationSchema.parse(request.body);
-    const packet = await store.redeemHandoff(options.token);
-    if (!packet) {
-      response.status(404).json({ error: "Handoff is invalid, revoked, exhausted, or expired." });
-      return;
-    }
-
-    const parent = packet.conversation;
-    const conversation = await store.save(localContinuation({
-      parent,
-      parentId: parent.id,
-      handoffId: packet.handoff.id,
-      provider: options.provider,
-      app: options.app,
-      title: options.title,
-      messages: options.messages,
-    }));
-
-    response.status(201).json({ conversation, parentId: parent.id });
-  } catch (error) {
-    if (error instanceof TransferError) {
-      response.status(422).json({ error: error.message });
-      return;
-    }
-    badRequest(response, error);
-  }
-});
-
-app.delete("/api/handoffs/:id", requireApiKey, async (request, response) => {
-  const revoked = await store.revokeHandoff(pathParam(request.params.id));
-  if (!revoked) {
-    response.status(404).json({ error: "Handoff not found or already revoked." });
-    return;
-  }
-  response.status(204).end();
-});
-
-/**
- * Look at a link without redeeming it.
- *
- * Unauthenticated for the same reason /share is: whoever holds the link is the
- * audience. It returns a title, a provider and a count, never the transcript,
- * so a peek cannot become a way to read someone's conversation for free.
- *
- * 410 rather than 404 when the link is gone. A relay old enough not to have
- * this route answers 404 from the catch-all, and a recipient's client needs to
- * tell "this link is dead" from "that relay cannot preview", because only one
- * of those means stop.
- */
-app.get("/share/:token/preview", shareLimiter, sharedShareLimiter, async (request, response) => {
-  const peek = await store.peekHandoff(pathParam(request.params.token));
-  if (!peek) {
-    response.status(410).json({ error: "Handoff is invalid, revoked, exhausted, or expired." });
-    return;
-  }
-  response.setHeader("cache-control", "no-store");
-  response.setHeader("x-robots-tag", "noindex, nofollow");
-  response.json({ format: "lnkz.preview.v1", preview: peek });
-});
-
-app.get("/share/:token", shareLimiter, sharedShareLimiter, async (request, response) => {
-  const packet = await store.redeemHandoff(pathParam(request.params.token));
-  if (!packet) {
-    response.status(404).json({ error: "Handoff is invalid, revoked, exhausted, or expired." });
-    return;
-  }
-  response.setHeader("cache-control", "no-store");
-  response.setHeader("x-robots-tag", "noindex, nofollow");
-  if ((request.header("accept") ?? "").includes("text/markdown")) {
-    response.type("text/markdown").send(packet.transcriptMarkdown);
-    return;
-  }
-  response.json(packet);
+mountHandoffRoutes(app, store, {
+  requireApiKey,
+  apiGuards: [apiLimiter, sharedApiLimiter],
+  shareGuards: [shareLimiter, sharedShareLimiter],
+  publicBaseUrl,
 });
 
 // ------------------------------------------------------------------------ context
