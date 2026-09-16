@@ -86,6 +86,18 @@ The crossing works and is asserted end to end. What remains is trust in it.
 - Make the SQLite-to-Postgres migration an accessible, verified command.
 - Preserve audit actors consistently across both stores.
 
+## Optional enrichment
+
+A model-powered layer over your own history, described in
+[ENRICHMENT.md](ENRICHMENT.md) and not built. It is a separate client of the
+REST API rather than part of `intel/`, because the deterministic analysis is
+what makes conflicts reproducible, packet claims traceable and conversations
+local, and a model in that path costs all three at once. Retrieval first, since
+it has a right answer to check against; the longitudinal view second.
+
+Sequenced after instance identity. Enrichment is additive and reversible;
+identity is a foundation.
+
 ## Scope boundaries
 
 The existing LLMM landing page and console now live with the relay in LNKZ.
