@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { executePublish, publishAllowlist } from "./execute.js";
 import { prepareCall, type PublishShape } from "./prepare.js";
 import { configuredTargets, discoverTools, findTool } from "./targets.js";
 import type { ConversationStore } from "../store/index.js";
@@ -14,6 +15,12 @@ const prepareSchema = {
 };
 
 const prepareObject = z.object(prepareSchema);
+
+const executeObject = z.object({
+  ...prepareSchema,
+  overrides: z.record(z.unknown()).optional(),
+  redact: z.boolean().default(true),
+});
 
 export function registerPublishTools(server: McpServer, store: ConversationStore): void {
   server.registerTool(
@@ -100,6 +107,72 @@ export function registerPublishTools(server: McpServer, store: ConversationStore
       return {
         content: [{ type: "text" as const, text: lines.join("\n") }],
         structuredContent: { prepared },
+      };
+    },
+  );
+  server.registerTool(
+    "execute_publish",
+    {
+      title: "Send a prepared call to another system",
+      description:
+        "Actually makes the call that prepare_publish describes. Only sends to a target and tool named in "
+        + "LNKZ_PUBLISH_ALLOWLIST as target:tool pairs; an absent allowlist means nothing sends, in every "
+        + "environment. Redacts by default, because the packet goes somewhere LNKZ cannot delete from. Records "
+        + "every attempt, including refusals and failures. Run prepare_publish first and supply anything it "
+        + "could not fill as overrides.",
+      inputSchema: {
+        ...prepareSchema,
+        overrides: z.record(z.unknown()).optional(),
+        redact: z.boolean().default(true),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (input) => {
+      const options = executeObject.parse(input);
+      const conversation = await store.get(options.conversationId);
+      if (!conversation) return toolError("Conversation not found.");
+
+      const { targets } = configuredTargets();
+      const target = targets.find((candidate) => candidate.name === options.target);
+      if (!target) return toolError(`No target named "${options.target}".`);
+
+      const discovered = await discoverTools([target]);
+      if (discovered[0]?.error) return toolError(`Could not reach ${options.target}: ${discovered[0].error}`);
+
+      const tool = findTool(discovered, options.target, options.tool);
+      if (!tool) return toolError(`${options.target} has no tool named "${options.tool}".`);
+
+      const result = await executePublish(store, {
+        conversation,
+        target,
+        tool,
+        shape: options.shape as PublishShape,
+        ...(options.overrides ? { overrides: options.overrides } : {}),
+        redact: options.redact,
+      });
+
+      if (result.outcome === "refused") {
+        const allowed = [...publishAllowlist()];
+        // Say what is allowed, since the usual cause is a pair that was never
+        // added rather than one that was deliberately left out.
+        return toolError(
+          `${result.reason}\n`
+          + (allowed.length ? `Currently allowed: ${allowed.join(", ")}.` : "Nothing is currently allowed to publish."),
+        );
+      }
+      if (result.outcome === "failed") {
+        return toolError(`${options.target}.${options.tool} did not accept the call: ${result.reason}`);
+      }
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: [
+            `Sent to ${options.target}.${options.tool}${result.redacted ? ", redacted" : ", unredacted"}.`,
+            result.response ?? "",
+          ].filter(Boolean).join("\n"),
+        }],
+        structuredContent: { result },
       };
     },
   );
