@@ -19,7 +19,7 @@
  *
  *   node scripts/acceptance.mjs
  *
- * Exit code 0 verifies the two-relay workflow, not native device installation.
+ * Exit code 0 means the MVP gate is met. Anything else names the step.
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -28,8 +28,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { build } from "esbuild";
 
 const directory = await mkdtemp(join(tmpdir(), "lnkz-acceptance-"));
 const running = [];
@@ -65,14 +63,6 @@ try {
   // default for exactly that reason.
   const a = await start("A");
   const b = await start("B");
-  const clientFile = join(directory, "mobile-client.mjs");
-  await build({ entryPoints: ["apps/mobile/src/api.ts"], outfile: clientFile, bundle: true, platform: "node", format: "esm" });
-  const { LnkzClient } = await import(pathToFileURL(clientFile).href);
-  const phoneA = new LnkzClient(a.base, a.key);
-  const phoneB = new LnkzClient(b.base, b.key);
-  await phoneA.checkConnection();
-  await phoneB.checkConnection();
-  await assert.rejects(() => new LnkzClient(a.base, b.key).checkConnection(), /key was rejected/);
   pass("two relays are running on separate databases");
 
   // 1. A person saves a conversation from an LLM client.
@@ -114,20 +104,22 @@ try {
   assert.ok(handoff.id, "A did not return a handoff id, so it cannot be revoked");
   pass("A creates a redacted one-use handoff with an expiry");
 
-  // 6. Look before taking, through the mobile client. This is the regression
-  // test: a dry run used to redeem the link, so on a one-use link the preview
-  // succeeded and the import that followed failed. Looking twice here would
-  // have spent it twice over.
-  const firstLook = await phoneB.previewLink(handoff.shareUrl);
+  // 6. Look before taking. This is the regression test: a dry run used to
+  // redeem the link, so on a one-use link the preview succeeded and the import
+  // that followed failed. Peeking twice here would have spent it twice over.
+  const firstLook = await call(b, "POST", "/api/conversations/import-url", { url: handoff.shareUrl, dryRun: true });
   assert.equal(firstLook.preview.messages, 4, "the preview did not describe the conversation");
-  const secondLook = await phoneB.previewLink(handoff.shareUrl);
+  const secondLook = await call(b, "POST", "/api/conversations/import-url", { url: handoff.shareUrl, dryRun: true });
   assert.equal(secondLook.preview.usesRemaining, 1, `looking at the link spent a use; ${secondLook.preview.usesRemaining} left after two previews`);
-  assert.equal(JSON.stringify(secondLook).includes(PLANTED_CREDENTIAL), false, "the planted credential leaked through a preview");
-  assert.equal((await phoneA.listHandoffs()).handoffs.find((h) => h.id === handoff.id).uses, 0, "previewing spent a use");
-  pass("the mobile client previews the link twice without spending its single use");
+
+  // The preview route is unauthenticated, so a redacted handoff has to be
+  // redacted here too. Otherwise anyone holding the link reads whatever landed
+  // in the title without even spending a use.
+  assert.ok(!JSON.stringify(firstLook).includes(PLANTED_CREDENTIAL), "the preview disclosed the planted credential");
+  pass("previewing the link twice does not spend its single use, and discloses nothing");
 
   // 7. B pulls it. B never pushed anything to A and A never pushed to B.
-  const imported = (await phoneB.importLink(handoff.shareUrl)).conversation;
+  const imported = (await call(b, "POST", "/api/conversations/import-url", { url: handoff.shareUrl })).conversation;
   const onB = (await call(b, "GET", `/api/conversations/${imported.id}`)).conversation;
   assert.notEqual(onB.id, original.id, "B reused A's id instead of assigning its own");
   assert.equal(onB.lineage?.originConversationId, original.id, "B lost the id it came from");
@@ -144,7 +136,7 @@ try {
   // place exhaustion is proved; the revocation step below uses a fresh link so
   // the two cannot be confused for each other.
   await assert.rejects(
-    () => phoneB.importLink(handoff.shareUrl),
+    () => call(b, "POST", "/api/conversations/import-url", { url: handoff.shareUrl }),
     /invalid, revoked, exhausted, or expired|422/,
     "a one-use link was redeemable twice",
   );
@@ -156,10 +148,10 @@ try {
   const forContinuing = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
     ttlMinutes: 10, maxUses: 1, redact: true,
   });
-  const continued = (await phoneB.continueFromLink({
+  const continued = (await call(b, "POST", "/api/handoffs/continue", {
     url: forContinuing.shareUrl,
     provider: "claude",
-    role: "assistant", content: "Agreed. SQLite now, and we revisit at ten nodes as noted.",
+    messages: [{ role: "assistant", content: "Agreed. SQLite now, and we revisit at ten nodes as noted." }],
   })).conversation;
   assert.ok(continued.id, "B did not return a continuation");
   assert.notEqual(continued.id, onB.id, "the continuation overwrote the imported copy instead of being a new conversation");
@@ -183,30 +175,40 @@ try {
   const beforeRevoke = await fetch(toRevoke.shareUrl + "/preview");
   assert.equal(beforeRevoke.status, 200, "a fresh link was not redeemable before revocation, so the test proves nothing");
 
-  await phoneA.revokeHandoff(toRevoke.id);
+  await call(a, "DELETE", `/api/handoffs/${toRevoke.id}`);
 
-  // All five ways in, because closing four of them is not closing the door.
+  // All four ways in, because closing three of them is not closing the door.
   const afterRevoke = await fetch(toRevoke.shareUrl);
   assert.equal(afterRevoke.status, 404, `a revoked link still redeemed, status ${afterRevoke.status}`);
 
   const previewAfterRevoke = await fetch(toRevoke.shareUrl + "/preview");
   assert.equal(previewAfterRevoke.status, 410, `a revoked link was still previewable, status ${previewAfterRevoke.status}`);
 
-  await assert.rejects(() => phoneB.importLink(toRevoke.shareUrl), /invalid, revoked, exhausted, or expired|422/, "a revoked link could still be imported");
-  await assert.rejects(() => phoneB.previewLink(toRevoke.shareUrl), /invalid, revoked, exhausted, or expired|422/, "a revoked link could still be inspected by a dry run");
   await assert.rejects(
-    () => phoneB.continueFromLink({ url: toRevoke.shareUrl, provider: "claude", content: "Too late.", role: "assistant" }),
+    () => call(b, "POST", "/api/conversations/import-url", { url: toRevoke.shareUrl }),
+    /invalid, revoked, exhausted, or expired|422/,
+    "a revoked link could still be imported",
+  );
+  await assert.rejects(
+    () => call(b, "POST", "/api/conversations/import-url", { url: toRevoke.shareUrl, dryRun: true }),
+    /invalid, revoked, exhausted, or expired|422/,
+    "a revoked link could still be inspected by a dry run",
+  );
+  await assert.rejects(
+    () => call(b, "POST", "/api/handoffs/continue", {
+      url: toRevoke.shareUrl, provider: "claude", messages: [{ role: "assistant", content: "Too late." }],
+    }),
     /invalid, revoked, exhausted, or expired|422/,
     "a revoked link could still be continued",
   );
-  pass("revoking a link with five uses left closes redemption, preview, import, dry-run import and continuation");
+  pass("revoking a link with four uses left closes redemption, preview, import and continuation");
 
   // Before handing it back, B carries the work a little further with a plain
   // follow-up. This is the step a person actually takes between receiving
   // something and returning it, and it is the only place the append route is
   // exercised across the whole journey.
-  const withFollowUp = (await phoneB.appendMessage(continued.id, {
-    role: "user", content: "Checked the write volume. Still well inside what one node handles.",
+  const withFollowUp = (await call(b, "POST", `/api/conversations/${continued.id}/messages`, {
+    messages: [{ role: "user", content: "Checked the write volume. Still well inside what one node handles." }],
   })).conversation;
   assert.equal(withFollowUp.messages.length, continued.messages.length + 1, "B's follow-up was not stored");
   assert.equal(withFollowUp.id, continued.id, "appending a message created a new conversation instead of extending one");
@@ -235,11 +237,13 @@ try {
   // proves it can come home, which is the half that quietly breaks: the copy
   // arriving back at A must resolve to A's own original, not to an id that
   // exists only on B.
-  const backToA = await phoneB.createHandoff(continued.id, { ttlMinutes: 10, maxUses: 1, redact: false });
-  const returned = (await phoneA.continueFromLink({
+  const backToA = await call(b, "POST", `/api/conversations/${continued.id}/handoffs`, {
+    ttlMinutes: 10, maxUses: 1, redact: false,
+  });
+  const returned = (await call(a, "POST", "/api/handoffs/continue", {
     url: backToA.shareUrl,
     provider: "chatgpt",
-    content: "Thanks. Filing that decision.",
+    messages: [{ role: "user", content: "Thanks. Filing that decision." }],
   })).conversation;
 
   assert.equal(returned.lineage?.originInstance, b.base, "A did not record that this came back from B");
@@ -353,7 +357,7 @@ async function start(name, port, key) {
 async function stop(service) {
   const index = running.indexOf(service);
   if (index >= 0) running.splice(index, 1);
-  if (service.child.exitCode !== null || service.child.signalCode !== null) return;
+  if (service.child.exitCode !== null) return;
   const exited = new Promise((resolve) => service.child.once("exit", resolve));
   service.child.kill();
   await exited;

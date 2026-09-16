@@ -332,8 +332,15 @@ export class SqliteConversationStore implements ConversationStore {
     if (!row) return null;
     if (row.revoked_at || row.expires_at <= now || row.uses >= row.max_uses) return null;
 
-    const conversation = await this.get(row.conversation_id);
-    if (!conversation) return null;
+    const stored = await this.get(row.conversation_id);
+    if (!stored) return null;
+
+    // The redact flag applies here too. A preview is unauthenticated exactly
+    // like redemption, so a title carrying an address or a key would be
+    // readable by anyone holding the link without even spending a use. Cheaper
+    // to redact the whole conversation and read three fields off it than to
+    // maintain a second, partial idea of what redaction covers.
+    const conversation = row.redact ? redactConversation(stored, { aggressive: true }).conversation : stored;
 
     this.recordEventSync({
       kind: "handoff.previewed",

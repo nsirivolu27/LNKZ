@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { analyzeConversation } from "../intel/analyze.js";
-import { noRedaction, redactConversation, redactText } from "../intel/redact.js";
+import { noRedaction, redactConversation } from "../intel/redact.js";
 import { conversationToMarkdown } from "./markdown.js";
 import { currentRequestContext, DEFAULT_WORKSPACE_ID } from "../context.js";
 import type { ConversationStore } from "./index.js";
@@ -240,8 +240,12 @@ export class PostgresConversationStore implements ConversationStore {
 
       const row = result.rows[0];
       await client.query("select set_config('app.workspace_id', $1, true)", [row.workspace_id]);
-      const conversation = await this.loadConversation(client, row.conversation_id);
-      if (!conversation) return null;
+      const stored = await this.loadConversation(client, row.conversation_id);
+      if (!stored) return null;
+
+      // Same reasoning as the SQLite store: the preview is unauthenticated, so
+      // a redacted handoff must be redacted here as well as on redemption.
+      const conversation = row.redact ? redactConversation(stored, { aggressive: true }).conversation : stored;
 
       await this.recordEventWithClient(client, {
         kind: "handoff.previewed",
@@ -250,11 +254,10 @@ export class PostgresConversationStore implements ConversationStore {
         detail: { usesRemaining: row.max_uses - row.uses },
       });
 
-      const clean = (text: string) => row.redact ? redactText(text, { aggressive: true }).text : text;
       return {
         handoffId: row.id,
-        title: clean(conversation.title),
-        provider: clean(conversation.source.provider),
+        title: conversation.title,
+        provider: conversation.source.provider,
         messageCount: conversation.messages.length,
         usesRemaining: row.max_uses - row.uses,
         // Same handling as redeemHandoff: the driver hands this back as the
