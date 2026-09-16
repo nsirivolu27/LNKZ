@@ -4,6 +4,9 @@ import { executePublish, publishAllowlist } from "./execute.js";
 import { prepareCall, type PublishShape } from "./prepare.js";
 import { configuredTargets, discoverTools, findTool } from "./targets.js";
 import type { ConversationStore } from "../store/index.js";
+import type { Conversation } from "../types.js";
+import type { RemoteTool } from "./prepare.js";
+import type { PublishTarget } from "./targets.js";
 
 const shapeSchema = z.enum(["summary", "decisions", "transcript", "brief"]);
 
@@ -71,7 +74,7 @@ export function mountPublishRoutes(app: Express, store: ConversationStore, requi
     try {
       const options = executeObject.parse(request.body);
       const resolved = await resolve(store, options.conversationId, options.target, options.tool);
-      if ("status" in resolved) {
+      if (!resolved.ok) {
         response.status(resolved.status).json({ error: resolved.error });
         return;
       }
@@ -101,20 +104,35 @@ export function mountPublishRoutes(app: Express, store: ConversationStore, requi
  * The four lookups both routes need, in one place: the conversation, the
  * configured target, that target being reachable, and the tool existing on it.
  * Returns either everything resolved or the status and message to answer with.
+ *
+ * Discriminated on `ok` rather than on the presence of a `status` field. An
+ * `in` check across two inferred object literals reads fine and does not
+ * narrow, which is how this shipped failing to typecheck.
  */
-async function resolve(store: ConversationStore, conversationId: string, targetName: string, toolName: string) {
+type Resolved =
+  | { ok: true; conversation: Conversation; target: PublishTarget; tool: RemoteTool }
+  | { ok: false; status: number; error: string };
+
+async function resolve(
+  store: ConversationStore,
+  conversationId: string,
+  targetName: string,
+  toolName: string,
+): Promise<Resolved> {
   const conversation = await store.get(conversationId);
-  if (!conversation) return { status: 404, error: "Conversation not found." };
+  if (!conversation) return { ok: false, status: 404, error: "Conversation not found." };
 
   const { targets } = configuredTargets();
   const target = targets.find((candidate) => candidate.name === targetName);
-  if (!target) return { status: 404, error: `No target named "${targetName}".` };
+  if (!target) return { ok: false, status: 404, error: `No target named "${targetName}".` };
 
   const discovered = await discoverTools([target]);
-  if (discovered[0]?.error) return { status: 502, error: `Could not reach ${targetName}: ${discovered[0].error}` };
+  if (discovered[0]?.error) {
+    return { ok: false, status: 502, error: `Could not reach ${targetName}: ${discovered[0].error}` };
+  }
 
   const tool = findTool(discovered, targetName, toolName);
-  if (!tool) return { status: 404, error: `${targetName} has no tool named "${toolName}".` };
+  if (!tool) return { ok: false, status: 404, error: `${targetName} has no tool named "${toolName}".` };
 
-  return { conversation, target, tool };
+  return { ok: true, conversation, target, tool };
 }
