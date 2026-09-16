@@ -27,4 +27,8 @@ jobs:
       - run: pnpm build
       - run: pnpm verify:web
       - run: pnpm verify:http
+      # The MVP gate. Starts two relays on separate databases and walks the
+      # whole journey, so a change that breaks the crossing fails here rather
+      # than being found by hand later.
+      - run: pnpm verify:journey
       - run: pnpm infra:synth

@@ -1,0 +1,385 @@
+/**
+ * The MVP gate, run end to end against two real relays.
+ *
+ * Every other check in this repository tests a part. `pnpm test` exercises the
+ * stores and the importers in process, `verify:http` checks one running server,
+ * and `demo.mjs` narrates a walkthrough for a viewer. None of them answers the
+ * only question that decides whether this product works:
+ *
+ *   can a conversation leave one person's instance, be continued on another
+ *   person's instance under a different provider, and still know where it came
+ *   from?
+ *
+ * This script answers that, with two processes, two SQLite files, and hard
+ * assertions. It is deliberately not a narrated demo: every step either passes
+ * with a reason or fails with the specific thing that was wrong. A generic
+ * "demo failed" tells you nothing at 2am.
+ *
+ * Usage, after `pnpm build`:
+ *
+ *   node scripts/acceptance.mjs
+ *
+ * Exit code 0 verifies the two-relay workflow, not native device installation.
+ */
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { build } from "esbuild";
+
+const directory = await mkdtemp(join(tmpdir(), "lnkz-acceptance-"));
+const running = [];
+let step = 0;
+let passed = false;
+
+/** A planted secret, so redaction has something visible to strip. */
+const PLANTED_CREDENTIAL = "sk-live-4f9c2b7e1a8d6035e2c4a90b7d15f8e3";
+
+const TRANSCRIPT = {
+  title: "Which store for the single node relay",
+  source: { provider: "chatgpt", app: "ChatGPT" },
+  participants: ["Nihal"],
+  tags: ["storage", "acceptance"],
+  messages: [
+    { role: "user", content: "Postgres or SQLite for a relay that one person runs?" },
+    { role: "assistant", content: "We decided to use SQLite for the single node case, because there is no second writer." },
+    { role: "user", content: `Here is the staging key so you can check the dashboard: ${PLANTED_CREDENTIAL}` },
+    { role: "assistant", content: "Open question: at what node count does that stop holding? Action: revisit at ten nodes." },
+  ],
+};
+
+function pass(description) {
+  step += 1;
+  console.log(`  ${String(step).padStart(2, " ")}. ok   ${description}`);
+}
+
+try {
+  console.log("LNKZ acceptance: a conversation crossing between two instances\n");
+
+  // Both relays allow private addresses because both are on loopback here. In
+  // production neither would, and transfer.ts refuses private destinations by
+  // default for exactly that reason.
+  const a = await start("A");
+  const b = await start("B");
+  const clientFile = join(directory, "mobile-client.mjs");
+  await build({ entryPoints: ["apps/mobile/src/api.ts"], outfile: clientFile, bundle: true, platform: "node", format: "esm" });
+  const { LnkzClient } = await import(pathToFileURL(clientFile).href);
+  const phoneA = new LnkzClient(a.base, a.key);
+  const phoneB = new LnkzClient(b.base, b.key);
+  await phoneA.checkConnection();
+  await phoneB.checkConnection();
+  await assert.rejects(() => new LnkzClient(a.base, b.key).checkConnection(), /key was rejected/);
+  pass("two relays are running on separate databases");
+
+  // 1. A person saves a conversation from an LLM client.
+  const original = (await call(a, "POST", "/api/conversations", TRANSCRIPT)).conversation;
+  assert.ok(original.id, "A did not return an id for the saved conversation");
+  assert.equal(original.messages.length, 4, "A did not store every message");
+  pass("a transcript is imported into relay A with its turns in order");
+
+  // 2. Deterministic analysis, not a model call.
+  const read = await call(a, "GET", `/api/conversations/${original.id}`);
+  assert.ok(read.analysis, "A returned no analysis for the conversation");
+  assert.ok(read.analysis.decisions.length > 0, "A found no decision in a transcript that states one");
+  pass("A produces analysis with at least one decision");
+
+  // 3. Search has to find it, or the library is useless at any real size.
+  const found = await call(a, "POST", "/api/conversations/search", { query: "SQLite single node", limit: 10 });
+  assert.ok(Array.isArray(found.matches), "search did not return a matches array; the response shape changed");
+  assert.ok(found.matches.some((match) => match.id === original.id), "search on A did not return the conversation it just stored");
+  pass("search on A finds the conversation");
+
+  // 4. A context packet, under budget, carrying the useful parts.
+  const packet = (await call(a, "POST", "/api/context/packet", { query: "store for the relay", budgetTokens: 1500 })).packet;
+  assert.ok(packet, "A returned no packet");
+  assert.ok(packet.conversations?.length > 0, "the packet contained no conversations");
+  assert.ok(packet.usedTokens <= packet.budgetTokens, `the packet used ${packet.usedTokens} tokens against a budget of ${packet.budgetTokens}`);
+  assert.ok(
+    packet.conversations.some((entry) => entry.decisions.length || entry.openQuestions.length || entry.actionItems.length),
+    "the packet carried transcript but none of the decisions, questions or actions that make it worth sending",
+  );
+  pass("A builds a context packet within a token budget, carrying decisions and questions");
+
+  // 5. A scoped handoff. One use, so looking at it and taking it cannot both
+  // work unless looking is genuinely free. Redaction on, so the planted
+  // credential must not leave.
+  const handoff = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
+    ttlMinutes: 10, maxUses: 1, audience: "a colleague", redact: true,
+  });
+  assert.ok(handoff.shareUrl, "A did not return a share url");
+  assert.ok(handoff.id, "A did not return a handoff id, so it cannot be revoked");
+  pass("A creates a redacted one-use handoff with an expiry");
+
+  // 6. Look before taking, through the mobile client. This is the regression
+  // test: a dry run used to redeem the link, so on a one-use link the preview
+  // succeeded and the import that followed failed. Looking twice here would
+  // have spent it twice over.
+  const firstLook = await phoneB.previewLink(handoff.shareUrl);
+  assert.equal(firstLook.preview.messages, 4, "the preview did not describe the conversation");
+  const secondLook = await phoneB.previewLink(handoff.shareUrl);
+  assert.equal(secondLook.preview.usesRemaining, 1, `looking at the link spent a use; ${secondLook.preview.usesRemaining} left after two previews`);
+  assert.equal(JSON.stringify(secondLook).includes(PLANTED_CREDENTIAL), false, "the planted credential leaked through a preview");
+  assert.equal((await phoneA.listHandoffs()).handoffs.find((h) => h.id === handoff.id).uses, 0, "previewing spent a use");
+  pass("the mobile client previews the link twice without spending its single use");
+
+  // 7. B pulls it. B never pushed anything to A and A never pushed to B.
+  const imported = (await phoneB.importLink(handoff.shareUrl)).conversation;
+  const onB = (await call(b, "GET", `/api/conversations/${imported.id}`)).conversation;
+  assert.notEqual(onB.id, original.id, "B reused A's id instead of assigning its own");
+  assert.equal(onB.lineage?.originConversationId, original.id, "B lost the id it came from");
+  assert.ok(onB.lineage?.originInstance, "B did not record which instance sent this");
+  pass("B imports the handoff and records where it came from");
+
+  // The credential was in the transcript on A. Redaction happens on the way
+  // out, so B must never have seen it at all.
+  const bodyOnB = JSON.stringify(onB);
+  assert.ok(!bodyOnB.includes(PLANTED_CREDENTIAL), "the planted credential crossed to B despite redaction being on");
+  pass("redaction stripped the planted credential before it left A");
+
+  // The link is now spent. A second attempt must fail, and this is the only
+  // place exhaustion is proved; the revocation step below uses a fresh link so
+  // the two cannot be confused for each other.
+  await assert.rejects(
+    () => phoneB.importLink(handoff.shareUrl),
+    /invalid, revoked, exhausted, or expired|422/,
+    "a one-use link was redeemable twice",
+  );
+  pass("the one-use link is spent after a single import");
+
+  // 8 and 9. The heart of it. B continues the work under a different provider,
+  // and the result is a NEW conversation on B that knows its root, not an edit
+  // of the imported copy. A fresh link, because the first one is spent.
+  const forContinuing = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
+    ttlMinutes: 10, maxUses: 1, redact: true,
+  });
+  const continued = (await phoneB.continueFromLink({
+    url: forContinuing.shareUrl,
+    provider: "claude",
+    role: "assistant", content: "Agreed. SQLite now, and we revisit at ten nodes as noted.",
+  })).conversation;
+  assert.ok(continued.id, "B did not return a continuation");
+  assert.notEqual(continued.id, onB.id, "the continuation overwrote the imported copy instead of being a new conversation");
+  assert.equal(continued.lineage?.continuedBy, "claude", "the continuation did not record which provider carried it forward");
+  assert.ok(continued.lineage?.handoffId, "the continuation did not record the handoff it came through");
+  assert.equal(continued.lineage?.rootId, original.id, "the chain root did not survive the crossing");
+  assert.ok(continued.messages.length > onB.messages.length, "the continuation did not add the new turn");
+  pass("B continues it under another provider as a new conversation with intact lineage");
+
+  // 9. A is untouched. This is what makes a handoff a copy and not a move.
+  const stillOnA = (await call(a, "GET", `/api/conversations/${original.id}`)).conversation;
+  assert.equal(stillOnA.messages.length, 4, "A's original changed when B continued it");
+  assert.ok(JSON.stringify(stillOnA).includes(PLANTED_CREDENTIAL), "A's own copy was redacted; redaction is for the packet leaving, not the stored original");
+  pass("A's original is unchanged by anything B did");
+
+  // 11. Revocation, on a link with uses left. Revoking an already-exhausted
+  // link proves nothing: it was already refusing. This one has never been used.
+  const toRevoke = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
+    ttlMinutes: 10, maxUses: 5, redact: true,
+  });
+  const beforeRevoke = await fetch(toRevoke.shareUrl + "/preview");
+  assert.equal(beforeRevoke.status, 200, "a fresh link was not redeemable before revocation, so the test proves nothing");
+
+  await phoneA.revokeHandoff(toRevoke.id);
+
+  // All five ways in, because closing four of them is not closing the door.
+  const afterRevoke = await fetch(toRevoke.shareUrl);
+  assert.equal(afterRevoke.status, 404, `a revoked link still redeemed, status ${afterRevoke.status}`);
+
+  const previewAfterRevoke = await fetch(toRevoke.shareUrl + "/preview");
+  assert.equal(previewAfterRevoke.status, 410, `a revoked link was still previewable, status ${previewAfterRevoke.status}`);
+
+  await assert.rejects(() => phoneB.importLink(toRevoke.shareUrl), /invalid, revoked, exhausted, or expired|422/, "a revoked link could still be imported");
+  await assert.rejects(() => phoneB.previewLink(toRevoke.shareUrl), /invalid, revoked, exhausted, or expired|422/, "a revoked link could still be inspected by a dry run");
+  await assert.rejects(
+    () => phoneB.continueFromLink({ url: toRevoke.shareUrl, provider: "claude", content: "Too late.", role: "assistant" }),
+    /invalid, revoked, exhausted, or expired|422/,
+    "a revoked link could still be continued",
+  );
+  pass("revoking a link with five uses left closes redemption, preview, import, dry-run import and continuation");
+
+  // Before handing it back, B carries the work a little further with a plain
+  // follow-up. This is the step a person actually takes between receiving
+  // something and returning it, and it is the only place the append route is
+  // exercised across the whole journey.
+  const withFollowUp = (await phoneB.appendMessage(continued.id, {
+    role: "user", content: "Checked the write volume. Still well inside what one node handles.",
+  })).conversation;
+  assert.equal(withFollowUp.messages.length, continued.messages.length + 1, "B's follow-up was not stored");
+  assert.equal(withFollowUp.id, continued.id, "appending a message created a new conversation instead of extending one");
+  assert.equal(withFollowUp.lineage?.rootId, original.id, "appending a message lost the chain root");
+  pass("B adds a follow-up turn to the conversation it continued");
+
+  // 12. Two devices, two keys. Separate databases are visible in the ids above;
+  // separate credentials are not, and a shared key would make every isolation
+  // claim in this file meaningless.
+  // Separate databases, stated directly rather than inferred from the ids
+  // differing: A's conversation id must mean nothing on B.
+  const strangerId = await fetch(`${b.base}/api/conversations/${original.id}`, {
+    headers: { authorization: `Bearer ${b.key}` },
+  });
+  assert.equal(strangerId.status, 404, "B knows A's conversation id, so they are sharing a database");
+
+  const crossed = await fetch(`${b.base}/api/stats`, { headers: { authorization: `Bearer ${a.key}` } });
+  assert.equal(crossed.status, 401, `A's key was accepted by B, status ${crossed.status}`);
+  const noKey = await fetch(`${b.base}/api/stats`);
+  assert.equal(noKey.status, 401, `B served stats with no key at all, status ${noKey.status}`);
+  const junkKey = await fetch(`${b.base}/api/stats`, { headers: { authorization: "Bearer not-a-real-key" } });
+  assert.equal(junkKey.status, 401, `B accepted an invented key, status ${junkKey.status}`);
+  pass("each relay has its own key, and a wrong, missing or invented one is refused");
+
+  // 13. The return leg. Everything above proves a conversation can leave. This
+  // proves it can come home, which is the half that quietly breaks: the copy
+  // arriving back at A must resolve to A's own original, not to an id that
+  // exists only on B.
+  const backToA = await phoneB.createHandoff(continued.id, { ttlMinutes: 10, maxUses: 1, redact: false });
+  const returned = (await phoneA.continueFromLink({
+    url: backToA.shareUrl,
+    provider: "chatgpt",
+    content: "Thanks. Filing that decision.",
+  })).conversation;
+
+  assert.equal(returned.lineage?.originInstance, b.base, "A did not record that this came back from B");
+  assert.equal(returned.lineage?.originConversationId, continued.id);
+  assert.equal(returned.lineage?.continuedBy, "chatgpt");
+  assert.equal(returned.lineage?.parentId, undefined, "B's row id was stored on A as though it were local");
+
+  // The assertion the whole product rests on. After going out, being continued
+  // elsewhere, and coming back, A can still walk from the returned copy to the
+  // conversation it started with.
+  assert.equal(returned.lineage?.rootId, original.id, "the chain root did not survive the round trip");
+  assert.ok(
+    returned.messages.some((message) => message.content.includes("Still well inside what one node handles")),
+    "B's follow-up did not come back to A with the conversation",
+  );
+  const root = (await call(a, "GET", `/api/conversations/${returned.lineage.rootId}`)).conversation;
+  assert.equal(root.id, original.id, "the root resolved to something other than A's original");
+  assert.equal(root.messages.length, 4, "the root is not the untouched original");
+  pass("the conversation comes home to A and resolves to A's own original");
+
+  // 14. Restart both. Nothing may be lost on either device.
+  await stop(a);
+  await stop(b);
+  const aAgain = await start("A", a.port, a.key);
+  const bAgain = await start("B", b.port, b.key);
+
+  const survivedOnB = (await call(bAgain, "GET", `/api/conversations/${continued.id}`)).conversation;
+  assert.equal(survivedOnB.lineage?.rootId, original.id, "lineage did not survive a restart of B");
+  // Against the count after B's follow-up, not the count at continuation time.
+  assert.equal(survivedOnB.messages.length, withFollowUp.messages.length, "messages did not survive a restart of B");
+
+  const survivedOnA = (await call(aAgain, "GET", `/api/conversations/${returned.id}`)).conversation;
+  assert.equal(survivedOnA.lineage?.rootId, original.id, "lineage did not survive a restart of A");
+  const originalAfterRestart = (await call(aAgain, "GET", `/api/conversations/${original.id}`)).conversation;
+  assert.equal(originalAfterRestart.messages.length, 4, "A's original did not survive its own restart intact");
+  pass("both relays restart and keep their own copies, lineage included");
+
+  passed = true;
+} catch (error) {
+  console.error(`\nFAIL at step ${step + 1}: ${error.message}`);
+  if (error.cause) console.error(`  cause: ${error.cause}`);
+  process.exitCode = 1;
+} finally {
+  // Iterate a copy. stop() removes the service from `running`, and mutating the
+  // array being iterated skipped every second relay, which left a process alive
+  // holding its database file open.
+  for (const service of [...running]) await stop(service);
+
+  try {
+    // Windows will not unlink a SQLite file the moment the process holding it
+    // exits, so a single attempt reports EBUSY on a run that was otherwise
+    // fine. Retry briefly, and treat a leftover temp directory as untidy
+    // rather than as a failed acceptance run.
+    await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+  } catch (error) {
+    console.warn(`\nNote: could not remove ${directory} (${error.code ?? error.message}). Temporary files were left behind.`);
+  }
+
+  // Printed last, and only from here, so a cleanup problem can never appear
+  // after the word PASS and make a clean run look broken.
+  if (passed) console.log("\nPASS: the MVP gate is met.");
+}
+
+/**
+ * Start a relay. Pass a port and key to restart an existing one on its own
+ * database, which is how the persistence check works.
+ */
+async function start(name, port, key) {
+  port ??= await freePort();
+  key ??= randomBytes(32).toString("base64url");
+  const base = `http://127.0.0.1:${port}`;
+
+  // Strip inherited configuration so a developer's own environment cannot
+  // change what this proves. A run that passes here because DATABASE_URL was
+  // set is not a run that passed.
+  const env = { ...process.env };
+  for (const variable of Object.keys(env)) {
+    if (/^(LNKZ_|DATABASE_|SLACK_|JIRA_|FIGMA_|DOCUMENT_FEED_|FANTASY_)/.test(variable)) delete env[variable];
+  }
+
+  const child = spawn(process.execPath, ["dist/index.mjs"], {
+    env: {
+      ...env,
+      NODE_ENV: "production",
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      LNKZ_API_KEY: key,
+      LNKZ_PUBLIC_BASE_URL: base,
+      LNKZ_DB_FILE: join(directory, `${name}.db`),
+      ALLOWED_HOSTS: "localhost,127.0.0.1",
+      ALLOWED_ORIGINS: base,
+      // Both instances are on loopback here. transfer.ts refuses private
+      // destinations by default and that default stays untouched in production.
+      LNKZ_TRANSFER_ALLOW_PRIVATE: "true",
+    },
+    stdio: "ignore",
+    windowsHide: true,
+  });
+
+  const service = { name, child, key, base, port };
+  running.push(service);
+
+  for (let tries = 0; tries < 150; tries += 1) {
+    if (child.exitCode !== null) throw new Error(`relay ${name} exited during startup; run 'pnpm build' first`);
+    try { if ((await fetch(`${base}/ready`)).ok) return service; } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`relay ${name} never became ready on ${base}`);
+}
+
+async function stop(service) {
+  const index = running.indexOf(service);
+  if (index >= 0) running.splice(index, 1);
+  if (service.child.exitCode !== null || service.child.signalCode !== null) return;
+  const exited = new Promise((resolve) => service.child.once("exit", resolve));
+  service.child.kill();
+  await exited;
+}
+
+async function call(service, method, path, body) {
+  const response = await fetch(`${service.base}${path}`, {
+    method,
+    headers: { authorization: `Bearer ${service.key}`, "content-type": "application/json" },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (response.status === 204) return {};
+  const text = await response.text();
+  if (!response.ok) {
+    // The body matters here. "Request failed" sends you reading source; the
+    // server's own message usually names the field it rejected.
+    throw new Error(`${method} ${path} on ${service.name} returned ${response.status}: ${text.slice(0, 300)}`);
+  }
+  return text ? JSON.parse(text) : {};
+}
+
+async function freePort() {
+  const server = createServer();
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}

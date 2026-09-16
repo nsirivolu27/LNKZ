@@ -1,8 +1,9 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { connectorStatuses } from "./connectors/index.js";
+import { localContinuation, remoteContinuation } from "./continuation.js";
 import { importConversations } from "./import/index.js";
-import { fetchTransfer, TransferError } from "./transfer.js";
+import { fetchTransfer, peekTransfer, TransferError } from "./transfer.js";
 import { analyzeConversation } from "./intel/analyze.js";
 import { detectConflicts, detectDuplicates } from "./intel/conflict.js";
 import { buildContextPacket } from "./intel/packet.js";
@@ -15,6 +16,7 @@ import {
   contextPacketSchema,
   contextSearchSchema,
   continueConversationSchema,
+  continueFromLinkSchema,
   conversationInputSchema,
   createHandoffSchema,
   duplicateSchema,
@@ -60,6 +62,7 @@ export function createLnkzMcpServer(
     "create_handoff",
     "redeem_handoff",
     "continue_handoff",
+    "continue_from_link",
     "revoke_handoff",
   ]);
   const register = originalRegisterTool as unknown as (
@@ -206,20 +209,32 @@ export function createLnkzMcpServer(
     },
     async (input) => {
       const parsed = importUrlSchema.parse(input);
+
+      if (parsed.dryRun) {
+        // A dry run used to fetch the packet and describe what it found, which
+        // redeems the link. On a one-use link that made looking and taking
+        // mutually exclusive. It asks the sending relay to describe the link
+        // instead, which costs nothing.
+        try {
+          const peek = await peekTransfer(parsed.url);
+          return ok(
+            `${peek.origin.instance} offers "${peek.preview.title}" from ${peek.preview.provider} with `
+            + `${peek.preview.messages} messages. ${peek.preview.usesRemaining} use(s) left`
+            + `${peek.preview.redact ? ", redacted on the way out" : ""}. Nothing was written and no use was spent.`,
+            { origin: peek.origin, preview: peek.preview },
+          );
+        } catch (error) {
+          if (error instanceof TransferError) return toolError(error.message);
+          return toolError(error instanceof Error ? error.message : "Preview failed.");
+        }
+      }
+
       let transfer;
       try {
         transfer = await fetchTransfer(parsed.url);
       } catch (error) {
         if (error instanceof TransferError) return toolError(error.message);
         return toolError(error instanceof Error ? error.message : "Transfer failed.");
-      }
-
-      if (parsed.dryRun) {
-        return ok(
-          `${transfer.origin.instance} offers "${transfer.conversation.title}" with `
-          + `${transfer.conversation.messages.length} messages. Nothing was written.`,
-          { origin: transfer.origin, warnings: transfer.warnings },
-        );
       }
 
       const conversation = await store.save({
@@ -322,25 +337,94 @@ export function createLnkzMcpServer(
       if (!packet) return toolError("Handoff is invalid, revoked, exhausted, or expired.");
 
       const parent = packet.conversation;
-      const continuation = await store.save({
-        title: options.title || `${parent.title} (continued in ${options.provider})`,
-        summary: parent.summary,
-        source: { provider: options.provider, app: options.app },
-        participants: parent.participants,
-        tags: [...new Set([...parent.tags, "continuation"])],
-        messages: [...parent.messages, ...options.messages],
-        lineage: {
-          parentId: parent.id,
-          rootId: parent.lineage?.rootId ?? parent.id,
-          handoffId: packet.handoff.id,
-          continuedBy: options.provider,
-        },
-      });
+      // The same builder the REST route uses. This was a third hand-assembled
+      // copy of the lineage rules, which is how they drift apart.
+      const continuation = await store.save(localContinuation({
+        parent,
+        parentId: parent.id,
+        handoffId: packet.handoff.id,
+        provider: options.provider,
+        app: options.app,
+        title: options.title,
+        messages: options.messages,
+      }));
 
       return ok(
         `Continued ${parent.id} as ${continuation.id} in ${options.provider}, carrying ${parent.messages.length} prior message(s).`,
         { conversation: continuation, parentId: parent.id },
       );
+    },
+  );
+
+  server.registerTool(
+    "preview_handoff",
+    {
+      title: "Look at a link without taking it",
+      description:
+        "Reports what a LNKZ share link contains without redeeming it: title, provider, message count, uses "
+        + "remaining and whether it will be redacted. Never returns the transcript, and never spends one of the "
+        + "link's uses, so it is safe on a one-use link. Use this before import_from_url or continue_from_link "
+        + "when you are not sure what someone sent you.",
+      inputSchema: { url: z.string().trim().min(1).max(2_048) },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async (input) => {
+      const { url } = z.object({ url: z.string().trim().min(1).max(2_048) }).parse(input);
+      try {
+        const peek = await peekTransfer(url);
+        const lines = [
+          `"${peek.preview.title}" from ${peek.preview.provider}, ${peek.preview.messages} message(s).`,
+          `Offered by ${peek.origin.instance}.`,
+          `${peek.preview.usesRemaining} use(s) left, expiring ${peek.preview.expiresAt}.`,
+          peek.preview.redact ? "It will be redacted on the way out." : "It will be sent unredacted.",
+          "Nothing was written here and no use was spent.",
+        ];
+        return ok(lines.join("\n"), { origin: peek.origin, preview: peek.preview });
+      } catch (error) {
+        if (error instanceof TransferError) return toolError(error.message);
+        return toolError(error instanceof Error ? error.message : "Preview failed.");
+      }
+    },
+  );
+
+  server.registerTool(
+    "continue_from_link",
+    {
+      title: "Continue someone else's conversation here",
+      description:
+        "Takes a LNKZ share link from another instance and stores your continuation of it as a new conversation "
+        + "here, recording which instance it came from and which provider carried it forward. This is different "
+        + "from import_from_url followed by append_messages: that edits your copy and leaves nothing saying the "
+        + "work moved on. Use continue_handoff instead for a link this instance minted.",
+      inputSchema: continueFromLinkSchema.shape,
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (input) => {
+      const options = continueFromLinkSchema.parse(input);
+      let transfer;
+      try {
+        transfer = await fetchTransfer(options.url);
+      } catch (error) {
+        if (error instanceof TransferError) return toolError(error.message);
+        return toolError(error instanceof Error ? error.message : "Transfer failed.");
+      }
+
+      const continuation = await store.save(remoteContinuation({
+        parent: transfer.conversation,
+        origin: transfer.origin,
+        provider: options.provider,
+        app: options.app,
+        title: options.title,
+        messages: options.messages,
+      }));
+
+      const lines = [
+        `Continued ${transfer.origin.instance}'s conversation as ${continuation.id} in ${options.provider}.`,
+        `It carries ${continuation.messages.length} message(s), including everything that came before.`,
+        `Chain root ${continuation.lineage?.rootId ?? "unknown"}, which is theirs, not ours.`,
+        ...transfer.warnings.map((warning) => `Warning: ${warning}`),
+      ];
+      return ok(lines.join("\n"), { conversation: continuation, origin: transfer.origin, warnings: transfer.warnings });
     },
   );
 

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 export function mountWebRoutes(app: Express, directory = "dist/web"): void {
   const root = resolve(directory);
+  app.use("/mobile", express.static(resolve("dist/mobile"), { dotfiles: "deny", setHeaders: (response) => response.setHeader("cache-control", "no-cache") }));
   // Only the built entry points and assets are public; API misses stay JSON.
   app.use("/assets", express.static(resolve(root, "assets"), { index: false, dotfiles: "deny" }));
   for (const [path, file] of [["/", "index.html"], ["/console.html", "console.html"]]) {

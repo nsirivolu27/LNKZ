@@ -7,6 +7,38 @@ function memoryStore(): SqliteConversationStore {
   return new SqliteConversationStore(":memory:");
 }
 
+test("preview discloses only redacted metadata and never consumes a use", async (t) => {
+  const store = memoryStore();
+  t.after(() => store.close());
+  const saved = await store.save(conversation({ title: "Contact person@example.com" }));
+  const handoff = await store.createHandoff({ conversationId: saved.id, ttlMinutes: 10, maxUses: 1, redact: true });
+  for (let i = 0; i < 3; i++) {
+    const preview = await store.peekHandoff(handoff.token);
+    assert.equal(preview?.usesRemaining, 1);
+    assert.equal(preview?.messageCount, saved.messages.length);
+    assert.equal(JSON.stringify(preview).includes("person@example.com"), false);
+    assert.equal(JSON.stringify(preview).includes(saved.messages[0].content), false);
+  }
+  assert.equal((await store.listHandoffs(saved.id))[0].uses, 0);
+  const concurrent = await Promise.all([store.redeemHandoff(handoff.token), store.redeemHandoff(handoff.token)]);
+  assert.equal(concurrent.filter(Boolean).length, 1, "only one request may claim the last use");
+  assert.equal(await store.peekHandoff(handoff.token), null);
+  const revoked = await store.createHandoff({ conversationId: saved.id, ttlMinutes: 10, maxUses: 1 });
+  await store.revokeHandoff(revoked.id);
+  assert.equal(await store.peekHandoff(revoked.token), null);
+  assert.equal(await store.peekHandoff("unknown"), null);
+});
+
+test("expired handoffs expose neither preview nor transcript", async (t) => {
+  const store = memoryStore();
+  t.after(() => store.close());
+  const saved = await store.save(conversation());
+  const handoff = await store.createHandoff({ conversationId: saved.id, ttlMinutes: 1, maxUses: 1 });
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse(handoff.expiresAt) + 1 });
+  assert.equal(await store.peekHandoff(handoff.token), null);
+  assert.equal(await store.redeemHandoff(handoff.token), null);
+});
+
 function conversation(overrides: Partial<ConversationInput> = {}): ConversationInput {
   return {
     title: "Launch decision",

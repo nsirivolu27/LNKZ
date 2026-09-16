@@ -108,8 +108,31 @@ export const contextPacketSchema = z.object({
   includeExternal: z.boolean().default(true),
 });
 
+/**
+ * Continuing a handoff minted by this instance. The parent row is in this
+ * database, so the continuation can point straight at it.
+ *
+ * Kept as a plain object rather than a refined union with the remote form
+ * below. The MCP tool registration reads `.shape` off this schema to publish
+ * its input signature, and a refinement produces a ZodEffects, which has no
+ * `.shape`. Two schemas that each stay an object are clearer than one that
+ * cannot be introspected.
+ */
 export const continueConversationSchema = z.object({
   token: z.string().trim().min(20).max(500),
+  provider: z.string().trim().min(1).max(80),
+  app: z.string().trim().max(120).optional(),
+  title: z.string().trim().max(240).optional(),
+  messages: z.array(messageSchema).min(1).max(500),
+});
+
+/**
+ * Continuing someone else's link. The parent lives on a machine this instance
+ * does not own, so the continuation records where it came from rather than
+ * pointing at a row that exists nowhere locally.
+ */
+export const continueFromLinkSchema = z.object({
+  url: z.string().trim().min(1).max(2_048),
   provider: z.string().trim().min(1).max(80),
   app: z.string().trim().max(120).optional(),
   title: z.string().trim().max(240).optional(),

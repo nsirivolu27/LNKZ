@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { currentRequestContext } from "../context.js";
 import { analyzeConversation } from "../intel/analyze.js";
 import { noRedaction, redactConversation } from "../intel/redact.js";
 import { conversationToMarkdown } from "./markdown.js";
@@ -17,6 +18,7 @@ import type {
   HandoffIssue,
   HandoffOptions,
   HandoffPacket,
+  HandoffPeek,
   HandoffSummary,
   ListOptions,
   MessageInput,
@@ -24,7 +26,7 @@ import type {
   StoreStats,
 } from "../types.js";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE conversations (
@@ -83,6 +85,7 @@ CREATE TABLE events (
   id              TEXT PRIMARY KEY,
   at              TEXT NOT NULL,
   kind            TEXT NOT NULL,
+  actor_id        TEXT,
   conversation_id TEXT,
   handoff_id      TEXT,
   detail_json     TEXT
@@ -114,6 +117,16 @@ export class SqliteConversationStore implements ConversationStore {
     if (current >= SCHEMA_VERSION) return;
     if (current === 0) {
       this.db.exec(SCHEMA);
+      this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      return;
+    }
+
+    // Version 1 recorded no actor on an event, so Postgres could answer "who
+    // did this" and SQLite could not. Added as a nullable column: rows written
+    // before this upgrade genuinely have no actor, and inventing "system" for
+    // them would be asserting something nobody recorded.
+    if (current === 1) {
+      this.db.exec("ALTER TABLE events ADD COLUMN actor_id TEXT");
       this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     }
   }
@@ -300,6 +313,54 @@ export class SqliteConversationStore implements ConversationStore {
     return { id, token, expiresAt, maxUses, audience: options.audience, redact: Boolean(options.redact) };
   }
 
+  /**
+   * Look without spending a use.
+   *
+   * import-url's dry run and the phone's preview both used to go through
+   * redeemHandoff, which meant looking at a one-use link consumed it and the
+   * real import that followed failed. A peek answers the only question a
+   * recipient has before committing, and answers it without touching uses.
+   *
+   * It does record the peek as an audit event, because the sender should still
+   * be able to see that their link was looked at.
+   */
+  async peekHandoff(token: string): Promise<HandoffPeek | null> {
+    const now = new Date().toISOString();
+    const row = this.db
+      .prepare("SELECT * FROM handoffs WHERE token_hash = ?")
+      .get(hashToken(token)) as unknown as HandoffRow | undefined;
+    if (!row) return null;
+    if (row.revoked_at || row.expires_at <= now || row.uses >= row.max_uses) return null;
+
+    const stored = await this.get(row.conversation_id);
+    if (!stored) return null;
+
+    // The redact flag applies here too. A preview is unauthenticated exactly
+    // like redemption, so a title carrying an address or a key would be
+    // readable by anyone holding the link without even spending a use. Cheaper
+    // to redact the whole conversation and read three fields off it than to
+    // maintain a second, partial idea of what redaction covers.
+    const conversation = row.redact ? redactConversation(stored, { aggressive: true }).conversation : stored;
+
+    this.recordEventSync({
+      kind: "handoff.previewed",
+      conversationId: row.conversation_id,
+      handoffId: row.id,
+      detail: { usesRemaining: row.max_uses - row.uses },
+    });
+
+    return {
+      handoffId: row.id,
+      title: conversation.title,
+      provider: conversation.source.provider,
+      messageCount: conversation.messages.length,
+      usesRemaining: row.max_uses - row.uses,
+      expiresAt: row.expires_at,
+      audience: row.audience ?? undefined,
+      redact: Boolean(row.redact),
+    };
+  }
+
   async redeemHandoff(token: string): Promise<HandoffPacket | null> {
     const now = new Date().toISOString();
     const row = this.db
@@ -387,6 +448,7 @@ export class SqliteConversationStore implements ConversationStore {
       id: row.id,
       at: row.at,
       kind: row.kind,
+      actorId: row.actor_id ?? undefined,
       conversationId: row.conversation_id ?? undefined,
       handoffId: row.handoff_id ?? undefined,
       detail: row.detail_json ? (JSON.parse(row.detail_json) as Record<string, unknown>) : undefined,
@@ -512,12 +574,18 @@ export class SqliteConversationStore implements ConversationStore {
 
   private recordEventSync(event: Omit<AuditEvent, "id" | "at"> & { at?: string }): void {
     this.db.prepare(`
-      INSERT INTO events (id, at, kind, conversation_id, handoff_id, detail_json)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO events (id, at, kind, actor_id, conversation_id, handoff_id, detail_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
       randomUUID(),
       event.at ?? new Date().toISOString(),
       event.kind,
+      // From the authenticated request, not from the caller's claim, which is
+      // how the Postgres store has always done it. An actor a caller can name
+      // is an actor a caller can forge, and an audit trail that accepts a
+      // supplied name is not one. "system" is the honest answer for work with
+      // no request behind it, such as a scheduled task or a test.
+      currentRequestContext()?.actorId ?? "system",
       event.conversationId ?? null,
       event.handoffId ?? null,
       event.detail ? JSON.stringify(event.detail) : null,
@@ -568,6 +636,7 @@ interface EventRow {
   id: string;
   at: string;
   kind: string;
+  actor_id: string | null;
   conversation_id: string | null;
   handoff_id: string | null;
   detail_json: string | null;

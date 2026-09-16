@@ -7,6 +7,7 @@ import type {
   HandoffIssue,
   HandoffOptions,
   HandoffPacket,
+  HandoffPeek,
   HandoffSummary,
   ListOptions,
   MessageInput,
@@ -27,6 +28,8 @@ export interface ConversationStore {
   search(query: string, limit: number): Promise<ConversationMatch[]>;
   createHandoff(options: HandoffOptions): Promise<HandoffIssue>;
   redeemHandoff(token: string): Promise<HandoffPacket | null>;
+  /** Look at a link without redeeming it. Never increments uses. */
+  peekHandoff(token: string): Promise<HandoffPeek | null>;
   revokeHandoff(handoffId: string): Promise<boolean>;
   listHandoffs(conversationId?: string): Promise<HandoffSummary[]>;
   recordEvent(event: Omit<AuditEvent, "id" | "at"> & { at?: string }): Promise<void>;

@@ -27,6 +27,25 @@ export interface ConversationSource {
  * A chat started in ChatGPT, handed off, and continued in Claude keeps the
  * chain so a reader can walk back to the original.
  */
+/**
+ * What a link contains, without spending one of its uses.
+ *
+ * Deliberately not the conversation. A peek is unauthenticated, exactly like
+ * redemption, so it must not be a way to read someone's transcript for free.
+ * Title, provider and a count are enough to decide whether to redeem, and no
+ * more than the sender already chose to reveal by sharing the link at all.
+ */
+export interface HandoffPeek {
+  handoffId: string;
+  title: string;
+  provider: string;
+  messageCount: number;
+  usesRemaining: number;
+  expiresAt: string;
+  audience?: string;
+  redact: boolean;
+}
+
 export interface ConversationLineage {
   parentId?: string;
   rootId?: string;

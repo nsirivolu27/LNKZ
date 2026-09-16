@@ -117,6 +117,58 @@ variable names are compatibility contracts.
 - `GET /api/context/conflicts`, `GET /api/context/duplicates`
 - `GET /api/connectors`, `GET /api/stats`, `GET /api/events`
 - `GET /share/:token` for bearer handoff redemption
-- `POST /api/publish/prepare`, `GET /api/publish/targets`, `GET /api/graph`
+- `GET /share/:token/preview` for the same link without redeeming it: title,
+  provider and message count only, never the transcript. Answers `410` when the
+  link is dead, which is how a caller tells that apart from the `404` an older
+  relay returns for a route it does not have.
+- `POST /api/handoffs/continue` takes either a `token` for a handoff minted here
+  or a `url` for another instance's link, and never both.
+- `POST /api/publish/prepare`, `POST /api/publish/execute`, `GET /api/publish/targets`, `GET /api/graph`
 
 Configuration and defaults are documented in [DEPLOY.md](DEPLOY.md).
+
+## Moving a conversation between two instances
+
+Four tools cover the crossing, and the difference between them matters.
+
+- `preview_handoff` reports what a link holds without redeeming it. No
+  transcript, no use spent, safe on a one-use link.
+- `import_from_url` takes a copy and records where it came from. Its `dryRun`
+  is the same peek as `preview_handoff` and likewise costs nothing.
+- `continue_from_link` stores your continuation of someone else's conversation
+  as a new conversation, recording the origin instance and the provider that
+  carried it forward.
+- `continue_handoff` does the same for a link this instance minted, and can
+  point at the parent row because that row is local.
+
+Importing and then appending is not the same as continuing. It edits your copy
+and leaves nothing saying the work moved on.
+
+## Writing to another system
+
+`prepare_publish` maps a conversation onto a remote tool's input schema and
+shows the exact call. `execute_publish` makes it. They are separate because a
+read that goes wrong wastes a request and a write that goes wrong is a ticket
+somebody has to close.
+
+Three rules govern the second one.
+
+`LNKZ_MCP_TARGETS` says where LNKZ may read. `LNKZ_PUBLISH_ALLOWLIST` says
+what it may write, as explicit `target:tool` pairs:
+
+```text
+LNKZ_PUBLISH_ALLOWLIST=jira:create_issue,slack:post_message
+```
+
+Per tool, not per target, because allowing a target wholesale allows every
+write it grows later. Absent means nothing publishes, in every environment
+including development, since a rule that relaxes itself locally is one you
+find out about in production.
+
+Redaction runs before the call and defaults on. The packet goes to a system
+LNKZ does not control and often cannot delete from.
+
+Every attempt is recorded as `publish.sent`, `publish.refused` or
+`publish.failed`, with the target, tool, shape and whether redaction was on,
+and never the arguments. Redacting on the way out is pointless if the payload
+lands in the audit log on the way past.
