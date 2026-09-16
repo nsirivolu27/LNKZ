@@ -7,7 +7,7 @@ type ConfigMode = 'stdio' | 'hosted';
 function App() {
   const [mode, setMode] = useState<ConfigMode>('stdio');
   const [relayUrl, setRelayUrl] = useState('http://localhost:8787');
-  const [apiKey, setApiKey] = useState('lnkz_local_7f24d9e0a8c4');
+  const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [copied, setCopied] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
@@ -151,12 +151,13 @@ function App() {
               </button>
             </div>
             <div className="config-grid">
-              <div className="config-fields">
+              <form className="config-fields" onSubmit={(event) => event.preventDefault()}>
                 <label className="field-label" htmlFor="relay-url">RELAY URL <span>REQUIRED</span></label>
                 <input
                   id="relay-url"
                   className="field-input mono"
                   type="url"
+                  placeholder="http://localhost:8787"
                   value={relayUrl}
                   onChange={(event) => setRelayUrl(event.target.value)}
                   data-testid="input-relay-url"
@@ -172,6 +173,7 @@ function App() {
                     id="api-key"
                     className="field-input mono"
                     type={showKey ? 'text' : 'password'}
+                    placeholder="Paste your relay key"
                     value={apiKey}
                     onChange={(event) => setApiKey(event.target.value)}
                     data-testid="input-api-key"
@@ -194,7 +196,7 @@ function App() {
                   <ShieldAlert size={17} aria-hidden="true" />
                   <p><strong>BROWSER ONLY.</strong> This key never leaves this tab, enters a URL, or touches storage. Clear it before sharing your screen.</p>
                 </div>
-              </div>
+              </form>
               <div className="output-column">
                 <div className="output-header">
                   <span className="field-label">CLIENT CONFIG <span>LIVE</span></span>
