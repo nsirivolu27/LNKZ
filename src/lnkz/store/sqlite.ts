@@ -2,8 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { currentRequestContext } from "../context.js";
 import { analyzeConversation } from "../intel/analyze.js";
-import { noRedaction, redactConversation, redactText } from "../intel/redact.js";
+import { noRedaction, redactConversation } from "../intel/redact.js";
 import { conversationToMarkdown } from "./markdown.js";
 import type { ConversationStore } from "./index.js";
 import type {
@@ -25,7 +26,7 @@ import type {
   StoreStats,
 } from "../types.js";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE conversations (
@@ -84,6 +85,7 @@ CREATE TABLE events (
   id              TEXT PRIMARY KEY,
   at              TEXT NOT NULL,
   kind            TEXT NOT NULL,
+  actor_id        TEXT,
   conversation_id TEXT,
   handoff_id      TEXT,
   detail_json     TEXT
@@ -115,6 +117,16 @@ export class SqliteConversationStore implements ConversationStore {
     if (current >= SCHEMA_VERSION) return;
     if (current === 0) {
       this.db.exec(SCHEMA);
+      this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      return;
+    }
+
+    // Version 1 recorded no actor on an event, so Postgres could answer "who
+    // did this" and SQLite could not. Added as a nullable column: rows written
+    // before this upgrade genuinely have no actor, and inventing "system" for
+    // them would be asserting something nobody recorded.
+    if (current === 1) {
+      this.db.exec("ALTER TABLE events ADD COLUMN actor_id TEXT");
       this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     }
   }
@@ -330,11 +342,10 @@ export class SqliteConversationStore implements ConversationStore {
       detail: { usesRemaining: row.max_uses - row.uses },
     });
 
-    const clean = (text: string) => row.redact ? redactText(text, { aggressive: true }).text : text;
     return {
       handoffId: row.id,
-      title: clean(conversation.title),
-      provider: clean(conversation.source.provider),
+      title: conversation.title,
+      provider: conversation.source.provider,
       messageCount: conversation.messages.length,
       usesRemaining: row.max_uses - row.uses,
       expiresAt: row.expires_at,
@@ -362,16 +373,12 @@ export class SqliteConversationStore implements ConversationStore {
     const conversation = await this.get(row.conversation_id);
     if (!conversation) return null;
 
-    // Recheck after the async read: concurrent requests may have spent the last use.
-    const claimed = this.db.prepare(`UPDATE handoffs SET uses = uses + 1
-      WHERE id = ? AND revoked_at IS NULL AND expires_at > ? AND uses < max_uses RETURNING uses`)
-      .get(row.id, new Date().toISOString()) as { uses: number } | undefined;
-    if (!claimed) return null;
+    this.db.prepare("UPDATE handoffs SET uses = uses + 1 WHERE id = ?").run(row.id);
     this.recordEventSync({
       kind: "handoff.redeemed",
       conversationId: row.conversation_id,
       handoffId: row.id,
-      detail: { use: claimed.uses, maxUses: row.max_uses },
+      detail: { use: row.uses + 1, maxUses: row.max_uses },
     });
 
     const redacted = row.redact ? redactConversation(conversation, { aggressive: true }) : null;
@@ -385,7 +392,7 @@ export class SqliteConversationStore implements ConversationStore {
       redaction: redacted?.report ?? noRedaction(),
       handoff: {
         id: row.id,
-        usesRemaining: row.max_uses - claimed.uses,
+        usesRemaining: row.max_uses - (row.uses + 1),
         expiresAt: row.expires_at,
         audience: row.audience ?? undefined,
       },
@@ -434,6 +441,7 @@ export class SqliteConversationStore implements ConversationStore {
       id: row.id,
       at: row.at,
       kind: row.kind,
+      actorId: row.actor_id ?? undefined,
       conversationId: row.conversation_id ?? undefined,
       handoffId: row.handoff_id ?? undefined,
       detail: row.detail_json ? (JSON.parse(row.detail_json) as Record<string, unknown>) : undefined,
@@ -559,12 +567,18 @@ export class SqliteConversationStore implements ConversationStore {
 
   private recordEventSync(event: Omit<AuditEvent, "id" | "at"> & { at?: string }): void {
     this.db.prepare(`
-      INSERT INTO events (id, at, kind, conversation_id, handoff_id, detail_json)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO events (id, at, kind, actor_id, conversation_id, handoff_id, detail_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
       randomUUID(),
       event.at ?? new Date().toISOString(),
       event.kind,
+      // From the authenticated request, not from the caller's claim, which is
+      // how the Postgres store has always done it. An actor a caller can name
+      // is an actor a caller can forge, and an audit trail that accepts a
+      // supplied name is not one. "system" is the honest answer for work with
+      // no request behind it, such as a scheduled task or a test.
+      currentRequestContext()?.actorId ?? "system",
       event.conversationId ?? null,
       event.handoffId ?? null,
       event.detail ? JSON.stringify(event.detail) : null,
@@ -615,6 +629,7 @@ interface EventRow {
   id: string;
   at: string;
   kind: string;
+  actor_id: string | null;
   conversation_id: string | null;
   handoff_id: string | null;
   detail_json: string | null;

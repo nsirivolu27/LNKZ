@@ -86,7 +86,6 @@ export function mountPublishRoutes(app: Express, store: ConversationStore, requi
         shape: options.shape as PublishShape,
         ...(options.overrides ? { overrides: options.overrides } : {}),
         redact: options.redact,
-        ...(response.locals.actorId ? { actorId: String(response.locals.actorId) } : {}),
       });
 
       // 403 for a refusal and 502 for a failure, because the two need

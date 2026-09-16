@@ -100,7 +100,6 @@ test("an allowed publish sends, redacted, and records what it did without the pa
     const result = await executePublish(store, {
       conversation, target: TARGET, tool: TOOL,
       overrides: { project: "REL" },
-      actorId: "nihal",
     }, caller, { LNKZ_PUBLISH_ALLOWLIST: "jira:create_issue" });
 
     assert.equal(result.outcome, "sent");
@@ -123,7 +122,11 @@ test("an allowed publish sends, redacted, and records what it did without the pa
     assert.equal(event.detail?.target, "jira");
     assert.equal(event.detail?.tool, "create_issue");
     assert.equal(event.detail?.redacted, true);
-    assert.equal(event.actorId, "nihal");
+    // "system" rather than a name, because there is no authenticated request
+    // behind a unit test and the store refuses to invent one. Asserted rather
+    // than skipped: an audit row with no actor at all is the bug this found,
+    // and SQLite wrote exactly that until the column existed.
+    assert.equal(event.actorId, "system");
     assert.equal(JSON.stringify(event).includes(PLANTED), false, "the audit entry carried the payload");
   });
 });

@@ -46,7 +46,6 @@ export interface ExecuteOptions {
   /** Fields the mapping could not fill, supplied by the caller. */
   overrides?: Record<string, unknown>;
   redact?: boolean;
-  actorId?: string;
 }
 
 export interface ExecuteResult {
@@ -95,9 +94,9 @@ export async function executePublish(
     await store.recordEvent({
       kind: `publish.${outcome}`,
       conversationId: options.conversation.id,
-      // Spread rather than assigned, so an unknown actor is an absent field
-      // rather than a present one holding undefined.
-      ...(options.actorId ? { actorId: options.actorId } : {}),
+      // No actor here on purpose. Both stores take it from the authenticated
+      // request, because an actor a caller can name is an actor a caller can
+      // forge, and an audit trail that accepts a supplied name is not one.
       detail: {
         target: options.target.name,
         tool: options.tool.name,
