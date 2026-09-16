@@ -43,6 +43,27 @@ with two editors. That is a real limitation and an accepted one, because live
 co-editing is a different product and would drag accounts, presence and conflict
 resolution in behind it.
 
+## Three products, in order
+
+Each depends on the one before it, and none begins before its predecessor
+passes its gate. [ARCHITECTURE.md](ARCHITECTURE.md#repository-boundary) owns
+where the code lives.
+
+1. **LNKZ**, the relay. Moving a conversation between people, devices and
+   models with its origin intact. This repository. The gate is the journey
+   above, walked end to end against two real relay processes: `pnpm build`
+   then `pnpm verify:journey`, which CI runs on every change.
+2. **lnkz-mcp**, the adapter. A configurable MCP server pointed at a relay
+   someone else is hosting. Its gate is a model client completing the same
+   journey through MCP tools rather than REST.
+3. **The marketplace**. Distribution for configuration bundles that aim an MCP
+   server at one kind of work. Described in [MARKETPLACE.md](MARKETPLACE.md),
+   not scheduled, and deliberately not scaffolded here.
+
+Nothing is added to this repository in anticipation of the later two. A hook
+built for a product two gates away is a guess about requirements nobody has
+collected yet.
+
 ## Before a public demonstration
 
 - Validate a hosted instance, its persistent storage and its smoke test.
@@ -52,10 +73,30 @@ resolution in behind it.
 
 ## Transfer completion
 
-- Publish instance identity and sign packets independently of trusted-node HMAC.
-- Verify the sender and packet contents, recording verification in lineage.
+The crossing works and is asserted end to end. What remains is trust in it.
+
+- **Instance identity.** `lineage.originInstance` is currently whatever the URL
+  said. A recipient cannot tell whether a packet came from the instance it
+  names. An Ed25519 keypair per instance, a public key at
+  `/.well-known/lnkz.json`, signatures over a canonical packet serialization,
+  and verification recorded in lineage. An unverifiable packet is marked, not
+  discarded: the operator decides. This is the next thing to build.
+- **A recognizable name for the far instance**, from its published identity
+  rather than a bare origin URL.
 - Make the SQLite-to-Postgres migration an accessible, verified command.
 - Preserve audit actors consistently across both stores.
+
+## Optional enrichment
+
+A model-powered layer over your own history, described in
+[ENRICHMENT.md](ENRICHMENT.md) and not built. It is a separate client of the
+REST API rather than part of `intel/`, because the deterministic analysis is
+what makes conflicts reproducible, packet claims traceable and conversations
+local, and a model in that path costs all three at once. Retrieval first, since
+it has a right answer to check against; the longitudinal view second.
+
+Sequenced after instance identity. Enrichment is additive and reversible;
+identity is a foundation.
 
 ## Scope boundaries
 

@@ -34,6 +34,7 @@ import { build } from "esbuild";
 const directory = await mkdtemp(join(tmpdir(), "lnkz-acceptance-"));
 const running = [];
 let step = 0;
+let passed = false;
 
 /** A planted secret, so redaction has something visible to strip. */
 const PLANTED_CREDENTIAL = "sk-live-4f9c2b7e1a8d6035e2c4a90b7d15f8e3";
@@ -103,26 +104,29 @@ try {
   );
   pass("A builds a context packet within a token budget, carrying decisions and questions");
 
-  // 5. A scoped handoff. Redaction on, so the planted credential must not leave.
+  // 5. A scoped handoff. One use, so looking at it and taking it cannot both
+  // work unless looking is genuinely free. Redaction on, so the planted
+  // credential must not leave.
   const handoff = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
-    ttlMinutes: 10, maxUses: 3, audience: "a colleague", redact: true,
+    ttlMinutes: 10, maxUses: 1, audience: "a colleague", redact: true,
   });
   assert.ok(handoff.shareUrl, "A did not return a share url");
   assert.ok(handoff.id, "A did not return a handoff id, so it cannot be revoked");
-  pass("A creates a redacted handoff with an expiry and a use limit");
-  const single = await phoneA.createHandoff(original.id, { ttlMinutes: 10, maxUses: 1, redact: true });
-  const preview = await phoneB.previewLink(single.shareUrl);
-  await phoneB.previewLink(single.shareUrl);
-  assert.equal(preview.preview.messages, 4);
-  assert.equal(preview.preview.usesRemaining, 1);
-  assert.equal(JSON.stringify(preview).includes(PLANTED_CREDENTIAL), false);
-  assert.equal((await phoneA.listHandoffs()).handoffs.find((h) => h.id === single.id).uses, 0);
-  const singleCopy = await phoneB.importLink(single.shareUrl);
-  assert.equal(singleCopy.conversation.messages.length, 4);
-  await assert.rejects(() => phoneB.importLink(single.shareUrl), /exhausted/);
-  pass("the mobile client previews twice without spending a one-use link, then imports it exactly once");
+  pass("A creates a redacted one-use handoff with an expiry");
 
-  // 6. B pulls it. B never pushed anything to A and A never pushed to B.
+  // 6. Look before taking, through the mobile client. This is the regression
+  // test: a dry run used to redeem the link, so on a one-use link the preview
+  // succeeded and the import that followed failed. Looking twice here would
+  // have spent it twice over.
+  const firstLook = await phoneB.previewLink(handoff.shareUrl);
+  assert.equal(firstLook.preview.messages, 4, "the preview did not describe the conversation");
+  const secondLook = await phoneB.previewLink(handoff.shareUrl);
+  assert.equal(secondLook.preview.usesRemaining, 1, `looking at the link spent a use; ${secondLook.preview.usesRemaining} left after two previews`);
+  assert.equal(JSON.stringify(secondLook).includes(PLANTED_CREDENTIAL), false, "the planted credential leaked through a preview");
+  assert.equal((await phoneA.listHandoffs()).handoffs.find((h) => h.id === handoff.id).uses, 0, "previewing spent a use");
+  pass("the mobile client previews the link twice without spending its single use");
+
+  // 7. B pulls it. B never pushed anything to A and A never pushed to B.
   const imported = (await phoneB.importLink(handoff.shareUrl)).conversation;
   const onB = (await call(b, "GET", `/api/conversations/${imported.id}`)).conversation;
   assert.notEqual(onB.id, original.id, "B reused A's id instead of assigning its own");
@@ -136,11 +140,24 @@ try {
   assert.ok(!bodyOnB.includes(PLANTED_CREDENTIAL), "the planted credential crossed to B despite redaction being on");
   pass("redaction stripped the planted credential before it left A");
 
-  // 7 and 8. The heart of it. B continues the work under a different provider,
-  // and the result is a NEW conversation on B that knows its parent and its
-  // root, not an edit of the imported copy.
+  // The link is now spent. A second attempt must fail, and this is the only
+  // place exhaustion is proved; the revocation step below uses a fresh link so
+  // the two cannot be confused for each other.
+  await assert.rejects(
+    () => phoneB.importLink(handoff.shareUrl),
+    /invalid, revoked, exhausted, or expired|422/,
+    "a one-use link was redeemable twice",
+  );
+  pass("the one-use link is spent after a single import");
+
+  // 8 and 9. The heart of it. B continues the work under a different provider,
+  // and the result is a NEW conversation on B that knows its root, not an edit
+  // of the imported copy. A fresh link, because the first one is spent.
+  const forContinuing = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
+    ttlMinutes: 10, maxUses: 1, redact: true,
+  });
   const continued = (await phoneB.continueFromLink({
-    url: handoff.shareUrl,
+    url: forContinuing.shareUrl,
     provider: "claude",
     role: "assistant", content: "Agreed. SQLite now, and we revisit at ten nodes as noted.",
   })).conversation;
@@ -158,49 +175,133 @@ try {
   assert.ok(JSON.stringify(stillOnA).includes(PLANTED_CREDENTIAL), "A's own copy was redacted; redaction is for the packet leaving, not the stored original");
   pass("A's original is unchanged by anything B did");
 
-  await phoneB.appendMessage(continued.id, { role: "user", content: "Please send the decision back to my other device." });
-  const returnLink = await phoneB.createHandoff(continued.id, { ttlMinutes: 10, maxUses: 1, redact: true });
-  await phoneA.previewLink(returnLink.shareUrl);
-  const returned = (await phoneA.importLink(returnLink.shareUrl)).conversation;
-  assert.equal(returned.lineage.rootId, original.id);
-  assert.equal(returned.lineage.originConversationId, continued.id);
-  assert.equal(returned.messages.length, 6);
-  assert.equal((await phoneA.getConversation(original.id)).conversation.messages.length, 4);
-  pass("B adds a turn and sends it back to A; both keep their own copies and the original root");
+  // 11. Revocation, on a link with uses left. Revoking an already-exhausted
+  // link proves nothing: it was already refusing. This one has never been used.
+  const toRevoke = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
+    ttlMinutes: 10, maxUses: 5, redact: true,
+  });
+  const beforeRevoke = await fetch(toRevoke.shareUrl + "/preview");
+  assert.equal(beforeRevoke.status, 200, "a fresh link was not redeemable before revocation, so the test proves nothing");
 
-  // 10. Revocation stops further use, immediately and on both paths.
-  const beforeRevoke = (await phoneA.listHandoffs()).handoffs.find((h) => h.id === handoff.id);
-  assert.equal(beforeRevoke.active, true);
-  assert.equal(beforeRevoke.maxUses - beforeRevoke.uses, 1, "revocation must be tested on an unspent link");
-  await phoneA.revokeHandoff(handoff.id);
-  await assert.rejects(() => phoneB.previewLink(handoff.shareUrl), /revoked/);
-  await assert.rejects(() => phoneB.importLink(handoff.shareUrl), /revoked/);
-  const afterRevoke = await fetch(handoff.shareUrl);
+  await phoneA.revokeHandoff(toRevoke.id);
+
+  // All five ways in, because closing four of them is not closing the door.
+  const afterRevoke = await fetch(toRevoke.shareUrl);
   assert.equal(afterRevoke.status, 404, `a revoked link still redeemed, status ${afterRevoke.status}`);
-  pass("revoking the handoff stops further redemption");
 
-  // 11. Restart B on the same database. Nothing may be lost.
-  await stop(b);
-  const bAgain = await start("B", b.port, b.key);
-  const survived = (await call(bAgain, "GET", `/api/conversations/${continued.id}`)).conversation;
-  assert.equal(survived.lineage?.rootId, original.id, "lineage did not survive a restart of B");
-  assert.equal(survived.messages.length, continued.messages.length + 1, "messages did not survive a restart of B");
-  pass("B restarts and the continuation is still there with its lineage");
+  const previewAfterRevoke = await fetch(toRevoke.shareUrl + "/preview");
+  assert.equal(previewAfterRevoke.status, 410, `a revoked link was still previewable, status ${previewAfterRevoke.status}`);
 
+  await assert.rejects(() => phoneB.importLink(toRevoke.shareUrl), /invalid, revoked, exhausted, or expired|422/, "a revoked link could still be imported");
+  await assert.rejects(() => phoneB.previewLink(toRevoke.shareUrl), /invalid, revoked, exhausted, or expired|422/, "a revoked link could still be inspected by a dry run");
+  await assert.rejects(
+    () => phoneB.continueFromLink({ url: toRevoke.shareUrl, provider: "claude", content: "Too late.", role: "assistant" }),
+    /invalid, revoked, exhausted, or expired|422/,
+    "a revoked link could still be continued",
+  );
+  pass("revoking a link with five uses left closes redemption, preview, import, dry-run import and continuation");
+
+  // Before handing it back, B carries the work a little further with a plain
+  // follow-up. This is the step a person actually takes between receiving
+  // something and returning it, and it is the only place the append route is
+  // exercised across the whole journey.
+  const withFollowUp = (await phoneB.appendMessage(continued.id, {
+    role: "user", content: "Checked the write volume. Still well inside what one node handles.",
+  })).conversation;
+  assert.equal(withFollowUp.messages.length, continued.messages.length + 1, "B's follow-up was not stored");
+  assert.equal(withFollowUp.id, continued.id, "appending a message created a new conversation instead of extending one");
+  assert.equal(withFollowUp.lineage?.rootId, original.id, "appending a message lost the chain root");
+  pass("B adds a follow-up turn to the conversation it continued");
+
+  // 12. Two devices, two keys. Separate databases are visible in the ids above;
+  // separate credentials are not, and a shared key would make every isolation
+  // claim in this file meaningless.
+  // Separate databases, stated directly rather than inferred from the ids
+  // differing: A's conversation id must mean nothing on B.
+  const strangerId = await fetch(`${b.base}/api/conversations/${original.id}`, {
+    headers: { authorization: `Bearer ${b.key}` },
+  });
+  assert.equal(strangerId.status, 404, "B knows A's conversation id, so they are sharing a database");
+
+  const crossed = await fetch(`${b.base}/api/stats`, { headers: { authorization: `Bearer ${a.key}` } });
+  assert.equal(crossed.status, 401, `A's key was accepted by B, status ${crossed.status}`);
+  const noKey = await fetch(`${b.base}/api/stats`);
+  assert.equal(noKey.status, 401, `B served stats with no key at all, status ${noKey.status}`);
+  const junkKey = await fetch(`${b.base}/api/stats`, { headers: { authorization: "Bearer not-a-real-key" } });
+  assert.equal(junkKey.status, 401, `B accepted an invented key, status ${junkKey.status}`);
+  pass("each relay has its own key, and a wrong, missing or invented one is refused");
+
+  // 13. The return leg. Everything above proves a conversation can leave. This
+  // proves it can come home, which is the half that quietly breaks: the copy
+  // arriving back at A must resolve to A's own original, not to an id that
+  // exists only on B.
+  const backToA = await phoneB.createHandoff(continued.id, { ttlMinutes: 10, maxUses: 1, redact: false });
+  const returned = (await phoneA.continueFromLink({
+    url: backToA.shareUrl,
+    provider: "chatgpt",
+    content: "Thanks. Filing that decision.",
+  })).conversation;
+
+  assert.equal(returned.lineage?.originInstance, b.base, "A did not record that this came back from B");
+  assert.equal(returned.lineage?.originConversationId, continued.id);
+  assert.equal(returned.lineage?.continuedBy, "chatgpt");
+  assert.equal(returned.lineage?.parentId, undefined, "B's row id was stored on A as though it were local");
+
+  // The assertion the whole product rests on. After going out, being continued
+  // elsewhere, and coming back, A can still walk from the returned copy to the
+  // conversation it started with.
+  assert.equal(returned.lineage?.rootId, original.id, "the chain root did not survive the round trip");
+  assert.ok(
+    returned.messages.some((message) => message.content.includes("Still well inside what one node handles")),
+    "B's follow-up did not come back to A with the conversation",
+  );
+  const root = (await call(a, "GET", `/api/conversations/${returned.lineage.rootId}`)).conversation;
+  assert.equal(root.id, original.id, "the root resolved to something other than A's original");
+  assert.equal(root.messages.length, 4, "the root is not the untouched original");
+  pass("the conversation comes home to A and resolves to A's own original");
+
+  // 14. Restart both. Nothing may be lost on either device.
   await stop(a);
+  await stop(b);
   const aAgain = await start("A", a.port, a.key);
-  assert.equal((await call(aAgain, "GET", `/api/conversations/${returned.id}`)).conversation.lineage.rootId, original.id);
-  assert.equal((await call(aAgain, "GET", `/api/conversations/${original.id}`)).conversation.messages.length, 4);
-  pass("A restarts with its original and returned conversation intact");
+  const bAgain = await start("B", b.port, b.key);
+
+  const survivedOnB = (await call(bAgain, "GET", `/api/conversations/${continued.id}`)).conversation;
+  assert.equal(survivedOnB.lineage?.rootId, original.id, "lineage did not survive a restart of B");
+  // Against the count after B's follow-up, not the count at continuation time.
+  assert.equal(survivedOnB.messages.length, withFollowUp.messages.length, "messages did not survive a restart of B");
+
+  const survivedOnA = (await call(aAgain, "GET", `/api/conversations/${returned.id}`)).conversation;
+  assert.equal(survivedOnA.lineage?.rootId, original.id, "lineage did not survive a restart of A");
+  const originalAfterRestart = (await call(aAgain, "GET", `/api/conversations/${original.id}`)).conversation;
+  assert.equal(originalAfterRestart.messages.length, 4, "A's original did not survive its own restart intact");
+  pass("both relays restart and keep their own copies, lineage included");
+
+  passed = true;
 } catch (error) {
   console.error(`\nFAIL at step ${step + 1}: ${error.message}`);
   if (error.cause) console.error(`  cause: ${error.cause}`);
   process.exitCode = 1;
 } finally {
+  // Iterate a copy. stop() removes the service from `running`, and mutating the
+  // array being iterated skipped every second relay, which left a process alive
+  // holding its database file open.
   for (const service of [...running]) await stop(service);
-  await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+
+  try {
+    // Windows will not unlink a SQLite file the moment the process holding it
+    // exits, so a single attempt reports EBUSY on a run that was otherwise
+    // fine. Retry briefly, and treat a leftover temp directory as untidy
+    // rather than as a failed acceptance run.
+    await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+  } catch (error) {
+    console.warn(`\nNote: could not remove ${directory} (${error.code ?? error.message}). Temporary files were left behind.`);
+  }
+
+  // Printed last, and only from here, so a cleanup problem can never appear
+  // after the word PASS and make a clean run look broken.
+  if (passed) console.log("\nPASS: the MVP gate is met.");
 }
-if (!process.exitCode) console.log("\nPASS: two-relay journey and mobile API client verified; both processes stopped.");
 
 /**
  * Start a relay. Pass a port and key to restart an existing one on its own

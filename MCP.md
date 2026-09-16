@@ -117,6 +117,29 @@ variable names are compatibility contracts.
 - `GET /api/context/conflicts`, `GET /api/context/duplicates`
 - `GET /api/connectors`, `GET /api/stats`, `GET /api/events`
 - `GET /share/:token` for bearer handoff redemption
+- `GET /share/:token/preview` for the same link without redeeming it: title,
+  provider and message count only, never the transcript. Answers `410` when the
+  link is dead, which is how a caller tells that apart from the `404` an older
+  relay returns for a route it does not have.
+- `POST /api/handoffs/continue` takes either a `token` for a handoff minted here
+  or a `url` for another instance's link, and never both.
 - `POST /api/publish/prepare`, `GET /api/publish/targets`, `GET /api/graph`
 
 Configuration and defaults are documented in [DEPLOY.md](DEPLOY.md).
+
+## Moving a conversation between two instances
+
+Four tools cover the crossing, and the difference between them matters.
+
+- `preview_handoff` reports what a link holds without redeeming it. No
+  transcript, no use spent, safe on a one-use link.
+- `import_from_url` takes a copy and records where it came from. Its `dryRun`
+  is the same peek as `preview_handoff` and likewise costs nothing.
+- `continue_from_link` stores your continuation of someone else's conversation
+  as a new conversation, recording the origin instance and the provider that
+  carried it forward.
+- `continue_handoff` does the same for a link this instance minted, and can
+  point at the parent row because that row is local.
+
+Importing and then appending is not the same as continuing. It edits your copy
+and leaves nothing saying the work moved on.

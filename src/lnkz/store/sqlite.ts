@@ -17,7 +17,7 @@ import type {
   HandoffIssue,
   HandoffOptions,
   HandoffPacket,
-  HandoffPreview,
+  HandoffPeek,
   HandoffSummary,
   ListOptions,
   MessageInput,
@@ -301,18 +301,46 @@ export class SqliteConversationStore implements ConversationStore {
     return { id, token, expiresAt, maxUses, audience: options.audience, redact: Boolean(options.redact) };
   }
 
-  async previewHandoff(token: string): Promise<HandoffPreview | null> {
-    const row = this.db.prepare(`SELECT c.title, c.provider, h.expires_at, h.max_uses, h.uses, h.redact,
-      (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
-      FROM handoffs h JOIN conversations c ON c.id = h.conversation_id
-      WHERE h.token_hash = ? AND h.revoked_at IS NULL AND h.expires_at > ? AND h.uses < h.max_uses`)
-      .get(hashToken(token), new Date().toISOString()) as {
-        title: string; provider: string; expires_at: string; max_uses: number; uses: number; redact: number; message_count: number;
-      } | undefined;
+  /**
+   * Look without spending a use.
+   *
+   * import-url's dry run and the phone's preview both used to go through
+   * redeemHandoff, which meant looking at a one-use link consumed it and the
+   * real import that followed failed. A peek answers the only question a
+   * recipient has before committing, and answers it without touching uses.
+   *
+   * It does record the peek as an audit event, because the sender should still
+   * be able to see that their link was looked at.
+   */
+  async peekHandoff(token: string): Promise<HandoffPeek | null> {
+    const now = new Date().toISOString();
+    const row = this.db
+      .prepare("SELECT * FROM handoffs WHERE token_hash = ?")
+      .get(hashToken(token)) as unknown as HandoffRow | undefined;
     if (!row) return null;
+    if (row.revoked_at || row.expires_at <= now || row.uses >= row.max_uses) return null;
+
+    const conversation = await this.get(row.conversation_id);
+    if (!conversation) return null;
+
+    this.recordEventSync({
+      kind: "handoff.previewed",
+      conversationId: row.conversation_id,
+      handoffId: row.id,
+      detail: { usesRemaining: row.max_uses - row.uses },
+    });
+
     const clean = (text: string) => row.redact ? redactText(text, { aggressive: true }).text : text;
-    return { format: "lnkz.handoff-preview.v1", title: clean(row.title), provider: clean(row.provider),
-      messages: row.message_count, expiresAt: row.expires_at, usesRemaining: row.max_uses - row.uses, redact: Boolean(row.redact) };
+    return {
+      handoffId: row.id,
+      title: clean(conversation.title),
+      provider: clean(conversation.source.provider),
+      messageCount: conversation.messages.length,
+      usesRemaining: row.max_uses - row.uses,
+      expiresAt: row.expires_at,
+      audience: row.audience ?? undefined,
+      redact: Boolean(row.redact),
+    };
   }
 
   async redeemHandoff(token: string): Promise<HandoffPacket | null> {

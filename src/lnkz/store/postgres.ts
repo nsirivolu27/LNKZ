@@ -16,7 +16,7 @@ import type {
   HandoffIssue,
   HandoffOptions,
   HandoffPacket,
-  HandoffPreview,
+  HandoffPeek,
   HandoffSummary,
   ListOptions,
   MessageInput,
@@ -217,23 +217,53 @@ export class PostgresConversationStore implements ConversationStore {
     });
   }
 
-  async previewHandoff(token: string): Promise<HandoffPreview | null> {
+  /**
+   * Look without spending a use. The SQLite implementation carries the reason
+   * this exists; the shape of the query is the only difference: a select rather
+   * than the update-returning that redemption uses, with the same four
+   * conditions so a revoked, expired or exhausted link is invisible here too.
+   */
+  async peekHandoff(token: string): Promise<HandoffPeek | null> {
     return this.transaction(async (client) => {
       await client.query("select set_config('app.handoff_token_hash', $1, true)", [hashToken(token)]);
-      const result = await client.query<HandoffRow>(`select * from handoffs where token_hash = $1
-        and revoked_at is null and expires_at > now() and uses < max_uses`, [hashToken(token)]);
+      const result = await client.query<HandoffRow>(
+        `select id, workspace_id, conversation_id, token_hash, created_at, expires_at,
+                max_uses, uses, revoked_at, audience, note, redact
+           from handoffs
+          where token_hash = $1
+            and revoked_at is null
+            and expires_at > now()
+            and uses < max_uses`,
+        [hashToken(token)],
+      );
+      if (!result.rows.length) return null;
+
       const row = result.rows[0];
-      if (!row) return null;
       await client.query("select set_config('app.workspace_id', $1, true)", [row.workspace_id]);
-      const metadata = await client.query<{ title: string; provider: string; message_count: number }>(
-        `select c.title, c.provider, (select count(*)::int from messages m where m.conversation_id = c.id) as message_count
-         from conversations c where c.id = $1`, [row.conversation_id]);
-      const conversation = metadata.rows[0];
+      const conversation = await this.loadConversation(client, row.conversation_id);
       if (!conversation) return null;
+
+      await this.recordEventWithClient(client, {
+        kind: "handoff.previewed",
+        conversationId: row.conversation_id,
+        handoffId: row.id,
+        detail: { usesRemaining: row.max_uses - row.uses },
+      });
+
       const clean = (text: string) => row.redact ? redactText(text, { aggressive: true }).text : text;
-      return { format: "lnkz.handoff-preview.v1", title: clean(conversation.title), provider: clean(conversation.provider),
-        messages: conversation.message_count, expiresAt: new Date(row.expires_at).toISOString(),
-        usesRemaining: row.max_uses - row.uses, redact: Boolean(row.redact) };
+      return {
+        handoffId: row.id,
+        title: clean(conversation.title),
+        provider: clean(conversation.source.provider),
+        messageCount: conversation.messages.length,
+        usesRemaining: row.max_uses - row.uses,
+        // Same handling as redeemHandoff: the driver hands this back as the
+        // row's own value, and both paths return it unchanged so a caller
+        // cannot tell which one produced the timestamp.
+        expiresAt: row.expires_at,
+        audience: row.audience ?? undefined,
+        redact: Boolean(row.redact),
+      };
     });
   }
 
