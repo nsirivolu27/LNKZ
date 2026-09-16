@@ -14,7 +14,7 @@ import { loadConfig } from "./config.js";
 import { connectorStatuses } from "./connectors/index.js";
 import { localContinuation, remoteContinuation } from "./continuation.js";
 import { importConversations } from "./import/index.js";
-import { fetchTransfer, TransferError } from "./transfer.js";
+import { fetchTransfer, previewTransfer, TransferError } from "./transfer.js";
 import { analyzeConversation } from "./intel/analyze.js";
 import { detectConflicts, detectDuplicates } from "./intel/conflict.js";
 import { buildContextPacket } from "./intel/packet.js";
@@ -168,20 +168,12 @@ app.post("/api/conversations", requireApiKey, apiLimiter, sharedApiLimiter, asyn
 app.post("/api/conversations/import-url", requireApiKey, apiLimiter, sharedApiLimiter, async (request, response) => {
   try {
     const input = importUrlSchema.parse(request.body);
-    const transfer = await fetchTransfer(input.url);
-
     if (input.dryRun) {
-      response.json({
-        origin: transfer.origin,
-        warnings: transfer.warnings,
-        preview: {
-          title: transfer.conversation.title,
-          provider: transfer.conversation.source.provider,
-          messages: transfer.conversation.messages.length,
-        },
-      });
+      response.json(await previewTransfer(input.url));
       return;
     }
+
+    const transfer = await fetchTransfer(input.url);
 
     const conversation = await store.save({
       ...transfer.conversation,
@@ -380,6 +372,14 @@ app.delete("/api/handoffs/:id", requireApiKey, async (request, response) => {
     return;
   }
   response.status(204).end();
+});
+
+app.get("/share/:token/preview", shareLimiter, sharedShareLimiter, async (request, response) => {
+  response.setHeader("cache-control", "no-store");
+  response.setHeader("x-robots-tag", "noindex, nofollow");
+  const preview = await store.previewHandoff(pathParam(request.params.token));
+  if (!preview) { response.status(404).json({ error: "Handoff is invalid, revoked, exhausted, or expired." }); return; }
+  response.json(preview);
 });
 
 app.get("/share/:token", shareLimiter, sharedShareLimiter, async (request, response) => {

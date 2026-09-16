@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { analyzeConversation } from "../intel/analyze.js";
-import { noRedaction, redactConversation } from "../intel/redact.js";
+import { noRedaction, redactConversation, redactText } from "../intel/redact.js";
 import { conversationToMarkdown } from "./markdown.js";
 import { currentRequestContext, DEFAULT_WORKSPACE_ID } from "../context.js";
 import type { ConversationStore } from "./index.js";
@@ -16,6 +16,7 @@ import type {
   HandoffIssue,
   HandoffOptions,
   HandoffPacket,
+  HandoffPreview,
   HandoffSummary,
   ListOptions,
   MessageInput,
@@ -213,6 +214,26 @@ export class PostgresConversationStore implements ConversationStore {
         detail: { ttlMinutes, maxUses, redact: Boolean(options.redact), audience: options.audience },
       });
       return { id, token, expiresAt, maxUses, audience: options.audience, redact: Boolean(options.redact) };
+    });
+  }
+
+  async previewHandoff(token: string): Promise<HandoffPreview | null> {
+    return this.transaction(async (client) => {
+      await client.query("select set_config('app.handoff_token_hash', $1, true)", [hashToken(token)]);
+      const result = await client.query<HandoffRow>(`select * from handoffs where token_hash = $1
+        and revoked_at is null and expires_at > now() and uses < max_uses`, [hashToken(token)]);
+      const row = result.rows[0];
+      if (!row) return null;
+      await client.query("select set_config('app.workspace_id', $1, true)", [row.workspace_id]);
+      const metadata = await client.query<{ title: string; provider: string; message_count: number }>(
+        `select c.title, c.provider, (select count(*)::int from messages m where m.conversation_id = c.id) as message_count
+         from conversations c where c.id = $1`, [row.conversation_id]);
+      const conversation = metadata.rows[0];
+      if (!conversation) return null;
+      const clean = (text: string) => row.redact ? redactText(text, { aggressive: true }).text : text;
+      return { format: "lnkz.handoff-preview.v1", title: clean(conversation.title), provider: clean(conversation.provider),
+        messages: conversation.message_count, expiresAt: new Date(row.expires_at).toISOString(),
+        usesRemaining: row.max_uses - row.uses, redact: Boolean(row.redact) };
     });
   }
 

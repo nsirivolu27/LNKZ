@@ -7,6 +7,7 @@
     "userInterfaceStyle": "light",
     "backgroundColor": "#f4f1e9",
     "scheme": "lnkz",
+    "experiments": { "baseUrl": "/mobile" },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.lnkz.mobile"

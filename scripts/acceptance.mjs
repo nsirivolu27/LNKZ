@@ -19,7 +19,7 @@
  *
  *   node scripts/acceptance.mjs
  *
- * Exit code 0 means the MVP gate is met. Anything else names the step.
+ * Exit code 0 verifies the two-relay workflow, not native device installation.
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -28,6 +28,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { build } from "esbuild";
 
 const directory = await mkdtemp(join(tmpdir(), "lnkz-acceptance-"));
 const running = [];
@@ -62,6 +64,14 @@ try {
   // default for exactly that reason.
   const a = await start("A");
   const b = await start("B");
+  const clientFile = join(directory, "mobile-client.mjs");
+  await build({ entryPoints: ["apps/mobile/src/api.ts"], outfile: clientFile, bundle: true, platform: "node", format: "esm" });
+  const { LnkzClient } = await import(pathToFileURL(clientFile).href);
+  const phoneA = new LnkzClient(a.base, a.key);
+  const phoneB = new LnkzClient(b.base, b.key);
+  await phoneA.checkConnection();
+  await phoneB.checkConnection();
+  await assert.rejects(() => new LnkzClient(a.base, b.key).checkConnection(), /key was rejected/);
   pass("two relays are running on separate databases");
 
   // 1. A person saves a conversation from an LLM client.
@@ -95,14 +105,25 @@ try {
 
   // 5. A scoped handoff. Redaction on, so the planted credential must not leave.
   const handoff = await call(a, "POST", `/api/conversations/${original.id}/handoffs`, {
-    ttlMinutes: 10, maxUses: 2, audience: "a colleague", redact: true,
+    ttlMinutes: 10, maxUses: 3, audience: "a colleague", redact: true,
   });
   assert.ok(handoff.shareUrl, "A did not return a share url");
   assert.ok(handoff.id, "A did not return a handoff id, so it cannot be revoked");
   pass("A creates a redacted handoff with an expiry and a use limit");
+  const single = await phoneA.createHandoff(original.id, { ttlMinutes: 10, maxUses: 1, redact: true });
+  const preview = await phoneB.previewLink(single.shareUrl);
+  await phoneB.previewLink(single.shareUrl);
+  assert.equal(preview.preview.messages, 4);
+  assert.equal(preview.preview.usesRemaining, 1);
+  assert.equal(JSON.stringify(preview).includes(PLANTED_CREDENTIAL), false);
+  assert.equal((await phoneA.listHandoffs()).handoffs.find((h) => h.id === single.id).uses, 0);
+  const singleCopy = await phoneB.importLink(single.shareUrl);
+  assert.equal(singleCopy.conversation.messages.length, 4);
+  await assert.rejects(() => phoneB.importLink(single.shareUrl), /exhausted/);
+  pass("the mobile client previews twice without spending a one-use link, then imports it exactly once");
 
   // 6. B pulls it. B never pushed anything to A and A never pushed to B.
-  const imported = (await call(b, "POST", "/api/conversations/import-url", { url: handoff.shareUrl })).conversation;
+  const imported = (await phoneB.importLink(handoff.shareUrl)).conversation;
   const onB = (await call(b, "GET", `/api/conversations/${imported.id}`)).conversation;
   assert.notEqual(onB.id, original.id, "B reused A's id instead of assigning its own");
   assert.equal(onB.lineage?.originConversationId, original.id, "B lost the id it came from");
@@ -118,10 +139,10 @@ try {
   // 7 and 8. The heart of it. B continues the work under a different provider,
   // and the result is a NEW conversation on B that knows its parent and its
   // root, not an edit of the imported copy.
-  const continued = (await call(b, "POST", "/api/handoffs/continue", {
+  const continued = (await phoneB.continueFromLink({
     url: handoff.shareUrl,
     provider: "claude",
-    messages: [{ role: "assistant", content: "Agreed. SQLite now, and we revisit at ten nodes as noted." }],
+    role: "assistant", content: "Agreed. SQLite now, and we revisit at ten nodes as noted.",
   })).conversation;
   assert.ok(continued.id, "B did not return a continuation");
   assert.notEqual(continued.id, onB.id, "the continuation overwrote the imported copy instead of being a new conversation");
@@ -137,8 +158,23 @@ try {
   assert.ok(JSON.stringify(stillOnA).includes(PLANTED_CREDENTIAL), "A's own copy was redacted; redaction is for the packet leaving, not the stored original");
   pass("A's original is unchanged by anything B did");
 
+  await phoneB.appendMessage(continued.id, { role: "user", content: "Please send the decision back to my other device." });
+  const returnLink = await phoneB.createHandoff(continued.id, { ttlMinutes: 10, maxUses: 1, redact: true });
+  await phoneA.previewLink(returnLink.shareUrl);
+  const returned = (await phoneA.importLink(returnLink.shareUrl)).conversation;
+  assert.equal(returned.lineage.rootId, original.id);
+  assert.equal(returned.lineage.originConversationId, continued.id);
+  assert.equal(returned.messages.length, 6);
+  assert.equal((await phoneA.getConversation(original.id)).conversation.messages.length, 4);
+  pass("B adds a turn and sends it back to A; both keep their own copies and the original root");
+
   // 10. Revocation stops further use, immediately and on both paths.
-  await call(a, "DELETE", `/api/handoffs/${handoff.id}`);
+  const beforeRevoke = (await phoneA.listHandoffs()).handoffs.find((h) => h.id === handoff.id);
+  assert.equal(beforeRevoke.active, true);
+  assert.equal(beforeRevoke.maxUses - beforeRevoke.uses, 1, "revocation must be tested on an unspent link");
+  await phoneA.revokeHandoff(handoff.id);
+  await assert.rejects(() => phoneB.previewLink(handoff.shareUrl), /revoked/);
+  await assert.rejects(() => phoneB.importLink(handoff.shareUrl), /revoked/);
   const afterRevoke = await fetch(handoff.shareUrl);
   assert.equal(afterRevoke.status, 404, `a revoked link still redeemed, status ${afterRevoke.status}`);
   pass("revoking the handoff stops further redemption");
@@ -148,18 +184,23 @@ try {
   const bAgain = await start("B", b.port, b.key);
   const survived = (await call(bAgain, "GET", `/api/conversations/${continued.id}`)).conversation;
   assert.equal(survived.lineage?.rootId, original.id, "lineage did not survive a restart of B");
-  assert.equal(survived.messages.length, continued.messages.length, "messages did not survive a restart of B");
+  assert.equal(survived.messages.length, continued.messages.length + 1, "messages did not survive a restart of B");
   pass("B restarts and the continuation is still there with its lineage");
 
-  console.log("\nPASS: the MVP gate is met.");
+  await stop(a);
+  const aAgain = await start("A", a.port, a.key);
+  assert.equal((await call(aAgain, "GET", `/api/conversations/${returned.id}`)).conversation.lineage.rootId, original.id);
+  assert.equal((await call(aAgain, "GET", `/api/conversations/${original.id}`)).conversation.messages.length, 4);
+  pass("A restarts with its original and returned conversation intact");
 } catch (error) {
   console.error(`\nFAIL at step ${step + 1}: ${error.message}`);
   if (error.cause) console.error(`  cause: ${error.cause}`);
   process.exitCode = 1;
 } finally {
-  for (const service of running) await stop(service);
-  await rm(directory, { recursive: true, force: true });
+  for (const service of [...running]) await stop(service);
+  await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
+if (!process.exitCode) console.log("\nPASS: two-relay journey and mobile API client verified; both processes stopped.");
 
 /**
  * Start a relay. Pass a port and key to restart an existing one on its own
@@ -211,7 +252,7 @@ async function start(name, port, key) {
 async function stop(service) {
   const index = running.indexOf(service);
   if (index >= 0) running.splice(index, 1);
-  if (service.child.exitCode !== null) return;
+  if (service.child.exitCode !== null || service.child.signalCode !== null) return;
   const exited = new Promise((resolve) => service.child.once("exit", resolve));
   service.child.kill();
   await exited;

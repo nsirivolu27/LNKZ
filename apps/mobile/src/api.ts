@@ -101,9 +101,9 @@ export interface TransferOrigin {
 
 /** What a link contains, before deciding whether to keep it. */
 export interface ImportPreview {
-  origin: TransferOrigin;
+  origin: Pick<TransferOrigin, "instance">;
   warnings: string[];
-  preview: { title: string; provider: string; messages: number };
+  preview: { title: string; provider: string; messages: number; expiresAt: string; usesRemaining: number; redact: boolean };
 }
 
 export class ApiError extends Error {
@@ -130,6 +130,7 @@ export function normalizeBaseUrl(value: string): string {
   if (parsed.username || parsed.password) {
     throw new Error("Do not put credentials in the server URL.");
   }
+  if (parsed.search || parsed.hash) throw new Error("The server URL cannot include query parameters or a fragment.");
   return trimmed;
 }
 
@@ -149,19 +150,19 @@ function userMessage(status: number, payload: unknown): string {
 export class LnkzClient {
   readonly baseUrl: string;
 
-  constructor(baseUrl: string, private readonly apiKey: string, private readonly timeoutMs = 10_000) {
+  constructor(baseUrl: string, private readonly apiKey: string, private readonly timeoutMs = 30_000) {
     this.baseUrl = normalizeBaseUrl(baseUrl);
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async request<T>(path: string, init: RequestInit = {}, authenticate = true): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const headers = new Headers(init.headers);
     if (init.body) headers.set("content-type", "application/json");
-    if (this.apiKey.trim()) headers.set("authorization", `Bearer ${this.apiKey.trim()}`);
+    if (authenticate && this.apiKey.trim()) headers.set("authorization", `Bearer ${this.apiKey.trim()}`);
 
     try {
-      const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers, signal: controller.signal });
+      const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers, signal: controller.signal, redirect: "error" });
       if (response.status === 204) return undefined as T;
       const text = await response.text();
       let payload: unknown = {};
@@ -169,7 +170,7 @@ export class LnkzClient {
         try {
           payload = JSON.parse(text);
         } catch {
-          payload = {};
+          if (response.ok) throw new ApiError("This URL returned a page instead of LNKZ data. Check the server URL.", response.status);
         }
       }
       if (!response.ok) throw new ApiError(userMessage(response.status, payload), response.status);
@@ -177,7 +178,7 @@ export class LnkzClient {
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (error instanceof Error && error.name === "AbortError") {
-        throw new Error("The server took too long to respond.");
+        throw new Error("The server took too long to respond. After saving or receiving a conversation, check your library before trying again.");
       }
       throw new Error("Could not reach the LNKZ server. Check the URL and your connection.");
     } finally {
@@ -268,7 +269,7 @@ export class LnkzClient {
    * and leaves nothing saying the work moved on, which is the distinction the
    * relay exists to preserve.
    */
-  continueFromLink(input: { url: string; provider: string; app?: string; title?: string; content: string }) {
+  continueFromLink(input: { url: string; provider: string; app?: string; title?: string; content: string; role?: "user" | "assistant" }) {
     return this.request<{ conversation: Conversation; origin: TransferOrigin; warnings: string[] }>(
       "/api/handoffs/continue",
       {
@@ -278,7 +279,7 @@ export class LnkzClient {
           provider: input.provider,
           app: input.app,
           title: input.title,
-          messages: [{ role: "assistant", content: input.content }],
+          messages: [{ role: input.role ?? "user", content: input.content }],
         }),
       },
     );
@@ -305,8 +306,10 @@ export class LnkzClient {
    * instead of "could not connect".
    */
   async checkConnection(): Promise<void> {
-    await this.request<unknown>("/ready");
-    await this.stats();
+    const ready = await this.request<{ ok?: boolean }>("/ready", {}, false);
+    if (ready?.ok !== true) throw new Error("This URL is not a ready LNKZ relay.");
+    const result = await this.stats();
+    if (typeof result?.stats?.conversations !== "number") throw new Error("The server did not return LNKZ stats. Check the URL.");
   }
 }
 

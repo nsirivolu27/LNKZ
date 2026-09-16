@@ -42,7 +42,8 @@ const TABS: { id: Tab; label: string; mark: string }[] = [
   { id: "settings", label: "SETTINGS", mark: "05" },
 ];
 
-const DEFAULT_URL = process.env.EXPO_PUBLIC_LNKZ_API_URL ?? "http://localhost:3100";
+const DEFAULT_URL = process.env.EXPO_PUBLIC_LNKZ_API_URL
+  ?? (Platform.OS === "web" && typeof window !== "undefined" ? window.location.origin : "http://localhost:3100");
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -51,6 +52,7 @@ export default function App() {
   useEffect(() => {
     loadConnection()
       .then(setConnection)
+      .catch(() => setConnection(null))
       .finally(() => setBooting(false));
   }, []);
 
@@ -440,7 +442,8 @@ function ReceiveLink({ client, onReceived, setError }: {
   setError: (value: string) => void;
 }) {
   const [url, setUrl] = useState("");
-  const [provider, setProvider] = useState("claude");
+  const [provider, setProvider] = useState("");
+  const [role, setRole] = useState<"user" | "assistant">("user");
   const [reply, setReply] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [working, setWorking] = useState("");
@@ -460,14 +463,16 @@ function ReceiveLink({ client, onReceived, setError }: {
   };
 
   const take = async (mode: "copy" | "continue") => {
+    if (!preview || working) return;
     if (!url.trim()) { setError("Paste the handoff link first."); return; }
     if (mode === "continue" && !reply.trim()) { setError("Write the turn you are adding."); return; }
+    if (mode === "continue" && !provider.trim()) { setError("Name the client you are continuing in."); return; }
     setWorking(mode);
     setError("");
     try {
       const result = mode === "copy"
         ? await client.importLink(url.trim())
-        : await client.continueFromLink({ url: url.trim(), provider: provider.trim() || "claude", content: reply.trim() });
+        : await client.continueFromLink({ url: url.trim(), provider: provider.trim(), content: reply.trim(), role });
       setUrl("");
       setReply("");
       setPreview(null);
@@ -485,22 +490,27 @@ function ReceiveLink({ client, onReceived, setError }: {
   return (
     <View>
       <Text style={styles.eyebrow}>RECEIVE / A LINK SOMEONE SENT YOU</Text>
-      <Field label="HANDOFF LINK" value={url} onChangeText={setUrl} autoCapitalize="none" placeholder="https://their-relay.example.com/share/…" />
+      <Field label="HANDOFF LINK" value={url} onChangeText={(value) => { setUrl(value); setPreview(null); }} editable={!working} autoCapitalize="none" placeholder="https://their-relay.example.com/share/…" />
       <Action label={working === "preview" ? "LOOKING…" : "PREVIEW LINK"} onPress={() => void look()} secondary disabled={Boolean(working)} />
       {preview ? (
         <View style={styles.provenance}>
           <Text style={styles.detailLabel}>{preview.preview.title}</Text>
           <Text style={styles.meta}>{preview.preview.provider} · {preview.preview.messages} MESSAGES</Text>
           <Text style={styles.meta}>From {preview.origin.instance}</Text>
+          <Text style={styles.meta}>{preview.preview.usesRemaining} USES LEFT · EXPIRES {new Date(preview.preview.expiresAt).toLocaleString()}</Text>
           {preview.warnings.map((warning) => <Text key={warning} style={styles.hint}>{warning}</Text>)}
         </View>
       ) : null}
       <Field label="CONTINUE IN" value={provider} onChangeText={setProvider} autoCapitalize="none" placeholder="claude, gemini, chatgpt…" />
       <Text style={styles.fieldLabel}>YOUR TURN (FOR CONTINUING)</Text>
+      <View style={styles.buttonRow}>
+        <Action label={role === "user" ? "✓ MY MESSAGE" : "MY MESSAGE"} onPress={() => setRole("user")} secondary />
+        <Action label={role === "assistant" ? "✓ MODEL RESPONSE" : "MODEL RESPONSE"} onPress={() => setRole("assistant")} secondary />
+      </View>
       <TextInput multiline textAlignVertical="top" style={styles.textarea} value={reply} onChangeText={setReply} placeholder="What you are adding on top of their work…" placeholderTextColor="#77776f" />
-      <Action label={working === "continue" ? "CONTINUING…" : "CONTINUE IT HERE →"} onPress={() => void take("continue")} disabled={Boolean(working)} />
-      <Action label={working === "copy" ? "IMPORTING…" : "JUST KEEP A COPY"} onPress={() => void take("copy")} secondary disabled={Boolean(working)} />
-      <Text style={styles.hint}>Continuing records which client carried the work forward. A copy does not.</Text>
+      <Action label={working === "continue" ? "CONTINUING…" : "CONTINUE IT HERE →"} onPress={() => void take("continue")} disabled={Boolean(working) || !preview} />
+      <Action label={working === "copy" ? "IMPORTING…" : "JUST KEEP A COPY"} onPress={() => void take("copy")} secondary disabled={Boolean(working) || !preview} />
+      <Text style={styles.hint}>Preview first, then choose one action. Receiving spends one use. LNKZ saves the turn you enter; it does not call the named model.</Text>
     </View>
   );
 }
@@ -551,12 +561,18 @@ function HandoffsView({ client, conversations, handoffs, selectedId, onSelect, r
   };
 
   const share = async (value: string) => {
+    try {
     if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard) {
       await navigator.clipboard.writeText(value);
       setNotice("Handoff link copied.");
       return;
     }
-    await Share.share({ message: value });
+      if (Platform.OS === "web") {
+        setNotice("Select and copy the link shown below, then paste it into Import on the other device.");
+      } else await Share.share({ message: value });
+    } catch {
+      setNotice("Select and copy the link shown below, then paste it into Import on the other device.");
+    }
   };
 
   const revoke = async (id: string) => {
@@ -615,7 +631,7 @@ function SettingsView({ connection, stats, connectors, client, disconnect, setEr
   const [testing, setTesting] = useState(false);
   const retest = async () => {
     setTesting(true); setError("");
-    try { await client.stats(); setNotice("Connection verified."); }
+    try { await client.checkConnection(); setNotice("Connection verified."); }
     catch (cause) { setError(messageOf(cause)); }
     finally { setTesting(false); }
   };

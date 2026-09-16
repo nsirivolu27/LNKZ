@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { analyzeConversation } from "../intel/analyze.js";
-import { noRedaction, redactConversation } from "../intel/redact.js";
+import { noRedaction, redactConversation, redactText } from "../intel/redact.js";
 import { conversationToMarkdown } from "./markdown.js";
 import type { ConversationStore } from "./index.js";
 import type {
@@ -17,6 +17,7 @@ import type {
   HandoffIssue,
   HandoffOptions,
   HandoffPacket,
+  HandoffPreview,
   HandoffSummary,
   ListOptions,
   MessageInput,
@@ -300,6 +301,20 @@ export class SqliteConversationStore implements ConversationStore {
     return { id, token, expiresAt, maxUses, audience: options.audience, redact: Boolean(options.redact) };
   }
 
+  async previewHandoff(token: string): Promise<HandoffPreview | null> {
+    const row = this.db.prepare(`SELECT c.title, c.provider, h.expires_at, h.max_uses, h.uses, h.redact,
+      (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
+      FROM handoffs h JOIN conversations c ON c.id = h.conversation_id
+      WHERE h.token_hash = ? AND h.revoked_at IS NULL AND h.expires_at > ? AND h.uses < h.max_uses`)
+      .get(hashToken(token), new Date().toISOString()) as {
+        title: string; provider: string; expires_at: string; max_uses: number; uses: number; redact: number; message_count: number;
+      } | undefined;
+    if (!row) return null;
+    const clean = (text: string) => row.redact ? redactText(text, { aggressive: true }).text : text;
+    return { format: "lnkz.handoff-preview.v1", title: clean(row.title), provider: clean(row.provider),
+      messages: row.message_count, expiresAt: row.expires_at, usesRemaining: row.max_uses - row.uses, redact: Boolean(row.redact) };
+  }
+
   async redeemHandoff(token: string): Promise<HandoffPacket | null> {
     const now = new Date().toISOString();
     const row = this.db
@@ -319,12 +334,16 @@ export class SqliteConversationStore implements ConversationStore {
     const conversation = await this.get(row.conversation_id);
     if (!conversation) return null;
 
-    this.db.prepare("UPDATE handoffs SET uses = uses + 1 WHERE id = ?").run(row.id);
+    // Recheck after the async read: concurrent requests may have spent the last use.
+    const claimed = this.db.prepare(`UPDATE handoffs SET uses = uses + 1
+      WHERE id = ? AND revoked_at IS NULL AND expires_at > ? AND uses < max_uses RETURNING uses`)
+      .get(row.id, new Date().toISOString()) as { uses: number } | undefined;
+    if (!claimed) return null;
     this.recordEventSync({
       kind: "handoff.redeemed",
       conversationId: row.conversation_id,
       handoffId: row.id,
-      detail: { use: row.uses + 1, maxUses: row.max_uses },
+      detail: { use: claimed.uses, maxUses: row.max_uses },
     });
 
     const redacted = row.redact ? redactConversation(conversation, { aggressive: true }) : null;
@@ -338,7 +357,7 @@ export class SqliteConversationStore implements ConversationStore {
       redaction: redacted?.report ?? noRedaction(),
       handoff: {
         id: row.id,
-        usesRemaining: row.max_uses - (row.uses + 1),
+        usesRemaining: row.max_uses - claimed.uses,
         expiresAt: row.expires_at,
         audience: row.audience ?? undefined,
       },

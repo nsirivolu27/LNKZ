@@ -29,7 +29,11 @@ test("Postgres preserves search, handoffs, and workspace isolation", { skip: !en
     assert.match(matches[0]?.snippet ?? "", /Postgres|multiple/i);
 
     const handoff = await store.createHandoff({ conversationId: id, maxUses: 1 });
+    assert.equal((await store.previewHandoff(handoff.token))?.usesRemaining, 1);
+    assert.equal((await store.previewHandoff(handoff.token))?.messages, 1);
+    assert.equal((await store.listHandoffs(id))[0].uses, 0);
     assert.equal((await store.redeemHandoff(handoff.token))?.conversation.id, id);
+    assert.equal(await store.previewHandoff(handoff.token), null);
     assert.equal(await store.redeemHandoff(handoff.token), null);
   } finally {
     await store.remove(id);

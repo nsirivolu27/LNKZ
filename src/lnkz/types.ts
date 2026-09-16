@@ -159,6 +159,17 @@ export interface HandoffPacket {
   exportedAt: string;
 }
 
+/** Metadata only: viewing this never releases the transcript or spends a use. */
+export interface HandoffPreview {
+  format: "lnkz.handoff-preview.v1";
+  title: string;
+  provider: string;
+  messages: number;
+  expiresAt: string;
+  usesRemaining: number;
+  redact: boolean;
+}
+
 /** Deterministic, model-free reading of what a conversation actually settled. */
 export interface ConversationAnalysis {
   decisions: AnalysisClaim[];

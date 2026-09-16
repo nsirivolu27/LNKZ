@@ -1,6 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { importConversations } from "./import/index.js";
+import { z } from "zod";
 import type { ConversationInput } from "./types.js";
 
 /**
@@ -29,6 +30,30 @@ export interface TransferResult {
 }
 
 export class TransferError extends Error {}
+
+const previewSchema = z.object({
+  format: z.literal("lnkz.handoff-preview.v1"), title: z.string().max(240), provider: z.string().max(80),
+  messages: z.number().int().nonnegative(), expiresAt: z.string().datetime(),
+  usesRemaining: z.number().int().positive(), redact: z.boolean(),
+});
+
+export async function previewTransfer(rawUrl: string, environment: NodeJS.ProcessEnv = process.env) {
+  const url = await safeUrl(rawUrl, environment);
+  if (!/\/share\/[^/]+\/?$/.test(url.pathname) || url.search || url.hash) {
+    throw new TransferError("Preview requires a LNKZ /share/token link without query parameters or a fragment.");
+  }
+  // Never fall back to GET of the original share URL: that would spend a use.
+  url.pathname = url.pathname.replace(/\/$/, "") + "/preview";
+  const response = await fetchWithTimeout(url);
+  if (!response.ok) throw new TransferError("Preview unavailable. The link may be invalid, expired, revoked or exhausted, or the sender needs to update LNKZ. No conversation was redeemed.");
+  const body = await readCapped(response);
+  try {
+    const { format: _format, ...preview } = previewSchema.parse(JSON.parse(body));
+    return { origin: { instance: url.origin }, warnings: [] as string[], preview };
+  } catch {
+    throw new TransferError("The sender did not return a supported handoff preview.");
+  }
+}
 
 /**
  * Fetch a share link and turn it into something the store can save.

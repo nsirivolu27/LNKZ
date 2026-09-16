@@ -2,7 +2,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { z } from "zod";
 import { connectorStatuses } from "./connectors/index.js";
 import { importConversations } from "./import/index.js";
-import { fetchTransfer, TransferError } from "./transfer.js";
+import { fetchTransfer, previewTransfer, TransferError } from "./transfer.js";
 import { analyzeConversation } from "./intel/analyze.js";
 import { detectConflicts, detectDuplicates } from "./intel/conflict.js";
 import { buildContextPacket } from "./intel/packet.js";
@@ -14,7 +14,7 @@ import {
   conflictSchema,
   contextPacketSchema,
   contextSearchSchema,
-  continueConversationSchema,
+  localContinueConversationSchema,
   conversationInputSchema,
   createHandoffSchema,
   duplicateSchema,
@@ -208,18 +208,14 @@ export function createLnkzMcpServer(
       const parsed = importUrlSchema.parse(input);
       let transfer;
       try {
+        if (parsed.dryRun) {
+          const result = await previewTransfer(parsed.url);
+          return ok(`${result.preview.title}: ${result.preview.messages} messages. No handoff use was spent.`, result);
+        }
         transfer = await fetchTransfer(parsed.url);
       } catch (error) {
         if (error instanceof TransferError) return toolError(error.message);
         return toolError(error instanceof Error ? error.message : "Transfer failed.");
-      }
-
-      if (parsed.dryRun) {
-        return ok(
-          `${transfer.origin.instance} offers "${transfer.conversation.title}" with `
-          + `${transfer.conversation.messages.length} messages. Nothing was written.`,
-          { origin: transfer.origin, warnings: transfer.warnings },
-        );
       }
 
       const conversation = await store.save({
@@ -313,11 +309,11 @@ export function createLnkzMcpServer(
     {
       title: "Continue a handed-off conversation",
       description: "Redeems a handoff and stores the continuation as a new conversation in this client, linked back to the original so the chain stays walkable.",
-      inputSchema: continueConversationSchema.shape,
+      inputSchema: localContinueConversationSchema.shape,
       annotations: { readOnlyHint: false, idempotentHint: false },
     },
     async (input) => {
-      const options = continueConversationSchema.parse(input);
+      const options = localContinueConversationSchema.parse(input);
       const packet = await store.redeemHandoff(options.token);
       if (!packet) return toolError("Handoff is invalid, revoked, exhausted, or expired.");
 

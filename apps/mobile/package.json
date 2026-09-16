@@ -9,7 +9,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "export:web": "expo export --platform web",
+    "export:web": "expo export --platform web --output-dir ../../dist/mobile",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

@@ -120,14 +120,17 @@ export const contextPacketSchema = z.object({
  * Exactly one of the two. Accepting both would leave the server guessing which
  * one the caller meant, and the two paths produce different lineage.
  */
-export const continueConversationSchema = z
-  .object({
-    token: z.string().trim().min(20).max(500).optional(),
-    url: z.string().trim().min(1).max(2_048).optional(),
+export const localContinueConversationSchema = z.object({
+    token: z.string().trim().min(20).max(500),
     provider: z.string().trim().min(1).max(80),
     app: z.string().trim().max(120).optional(),
     title: z.string().trim().max(240).optional(),
     messages: z.array(messageSchema).min(1).max(500),
+  });
+
+export const continueConversationSchema = localContinueConversationSchema.extend({
+    token: localContinueConversationSchema.shape.token.optional(),
+    url: z.string().trim().min(1).max(2_048).optional(),
   })
   .refine((value) => Boolean(value.token) !== Boolean(value.url), {
     message: "Provide either a token for a local handoff or a url for another instance's link, not both and not neither.",
