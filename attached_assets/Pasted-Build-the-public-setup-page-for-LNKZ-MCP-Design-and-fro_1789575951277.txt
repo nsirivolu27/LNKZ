@@ -1,0 +1,57 @@
+Build the public setup page for LNKZ MCP. Design and frontend only. No backend, no database, no accounts.
+
+What this is
+
+LNKZ is a conversation relay. A person runs their own instance, and LNKZ MCP is the adapter that points a model client at it. This page is what someone lands on when they want to connect their client, and the only job it has is getting them from "what is this" to a working config in under two minutes.
+
+It is not a dashboard. There is no account, no telemetry, no usage data, and nothing to log into. Do not design surfaces for data that does not exist.
+
+Visual language
+
+Match the existing clients. Cream 
+#f4f1e9, near-black 
+#0b0c0b, green accent 
+#1f6f3f, with a secondary surface 
+#ebe8df and muted text 
+#66665f.
+
+Two-pixel solid borders, no shadows, no rounded corners beyond 2px. Section labels are uppercase, letter-spaced, small. Headlines are large, tight, and set in two weights on the same line so one half is emphasized. Numerals and identifiers are monospace. It should read like a print spec sheet rather than a SaaS marketing page.
+
+Responsive down to 360px. Wide content scrolls inside its own container; the page body never scrolls sideways.
+
+Sections, in order
+
+1. What it does. One sentence, then the four-step path: you have a conversation with a model, you hand it to someone, they pick it up on their own instance, the chain shows where it came from. Four steps as a horizontal strip on desktop, stacked on mobile.
+
+2. Config generator. The centerpiece. Two inputs, relay URL and API key, and a live-updating JSON block for the client config, with a copy button.
+
+Three rules for this, and they are not negotiable:
+
+The API key never leaves the browser. No network request carries it, no analytics event includes it, it is never placed in a URL or query string, and it is not written to storage.
+The copy button copies the config. It does not show the key anywhere else on the page, and the input is masked with a reveal toggle.
+A warning directly under the output, in plain words, saying this config contains a credential and should go into the client's own configuration rather than a shared document or a chat.
+
+Offer both stdio and hosted variants in a two-tab switch, since which one someone needs depends on whether their relay is local or remote.
+
+3. Tool catalog. Twenty-nine tools grouped by what a person is trying to do, not alphabetically: saving and importing, finding, packaging, moving between people, publishing, workspace.
+
+Each tool shows its name in monospace, one line of plain description, and a badge marking it read or write. The four crossing tools get one extra line of context because their differences are the point:
+
+preview_handoff costs nothing, spends no use, never returns the transcript
+import_from_url takes a copy and records the origin
+continue_from_link continues someone else's conversation as a new one
+continue_handoff does the same for a link your own relay minted
+
+A filter toggle for "read only" that dims the write tools, matching the LNKZ_MCP_SCOPES=read setting.
+
+4. What it does not do. Short and direct. No account. No hosted storage of your conversations. No model calls in the analysis. Your relay is yours. This section is not a disclaimer, it is the product position, so give it the same weight as the rest.
+
+Honesty constraints
+
+Do not invent metrics, user counts, testimonials, logos, or uptime figures. Do not show a status indicator unless it reflects something real. Do not imply a hosted relay is available if none is running. Every number on the page must be something that is actually true, and if you cannot verify it, leave it out rather than choosing a plausible one.
+
+Deliverable
+
+A single-page React app, Vite, TypeScript, no UI framework beyond your own components. All content in one data file so tool descriptions can be edited without touching layout. Runs with npm run dev on Replit and builds to static files.
+
+Stop after the page works and looks right. Do not add routing, a backend, or a deployment step.
