@@ -675,16 +675,77 @@ test("Postgres application role can only read migration bookkeeping", { skip: !e
       `Postgres application role must have SELECT on ${objectName}`,
     );
     for (const privilege of ["INSERT", "UPDATE", "DELETE"]) {
+      const grantSource =
+        granted.get(privilege) === true
+          ? await describeTablePrivilegeGrant(pool, objectName, privilege)
+          : undefined;
       assert.equal(
         granted.get(privilege),
         false,
-        `Postgres application role unexpectedly has ${privilege} on ${objectName}`,
+        `Postgres application role unexpectedly has ${privilege} on ${objectName}${
+          grantSource ? ` (grant source: ${grantSource})` : ""
+        }`,
       );
     }
   } finally {
     await pool.end();
   }
 });
+
+async function describeTablePrivilegeGrant(
+  pool: Pool,
+  objectName: string,
+  privilege: string,
+): Promise<string | undefined> {
+  try {
+    const result = await pool.query<{ grant_source: string }>(
+      `
+        with recursive current_role as (
+          select oid as role_oid, rolname as role_name
+          from pg_roles
+          where rolname = current_user
+        ),
+        applicable_roles(role_oid, role_name) as (
+          select role_oid, role_name
+          from current_role
+          union
+          select parent.oid, parent.rolname
+          from pg_auth_members as membership
+          join applicable_roles as member_role on member_role.role_oid = membership.member
+          join pg_roles as parent on parent.oid = membership.roleid
+        )
+        select case
+          when acl.grantee = 0::oid then 'PUBLIC'
+          when direct_role.role_oid is not null
+            then format('direct role "%s"', roles.role_name)
+          else format('inherited role "%s"', roles.role_name)
+        end as grant_source
+        from pg_class as relation
+        join pg_namespace as namespace on namespace.oid = relation.relnamespace
+        cross join lateral aclexplode(
+          coalesce(relation.relacl, acldefault('r', relation.relowner))
+        ) as acl
+        left join applicable_roles as roles on roles.role_oid = acl.grantee
+        left join current_role as direct_role on direct_role.role_oid = roles.role_oid
+        where format('%I.%I', namespace.nspname, relation.relname) = $1
+          and acl.privilege_type = $2
+          and (acl.grantee = 0::oid or roles.role_oid is not null)
+        order by
+          case
+            when acl.grantee = 0::oid then 0
+            when direct_role.role_oid is not null then 1
+            else 2
+          end,
+          roles.role_name
+      `,
+      [objectName, privilege],
+    );
+    const sources = result.rows.map((row) => row.grant_source);
+    return sources.length ? sources.join(", ") : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 test("Postgres workspace tables require forced RLS and an isolation policy", { skip: !enabled }, async () => {
   await runPostgresMigrations(migrationUrl);
