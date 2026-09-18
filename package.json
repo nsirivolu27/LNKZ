@@ -5,15 +5,14 @@
   "packageManager": "pnpm@10.26.1",
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
-    "build": "pnpm run typecheck && pnpm --filter lnkz build && pnpm --filter lnkz-mcp build && pnpm --filter @workspace/api-server build",
+    "build": "pnpm run typecheck && pnpm --filter @workspace/api-server build",
     "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter lnkz --filter lnkz-mcp --filter @workspace/api-server --filter @workspace/mobile --filter ./scripts --if-present run typecheck",
-    "test": "pnpm --filter lnkz test && pnpm --filter lnkz-mcp test && pnpm --filter @workspace/api-server test && pnpm --filter @workspace/mobile test",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter @workspace/api-server --filter @workspace/mobile --filter ./scripts --if-present run typecheck",
+    "test": "pnpm --filter @workspace/api-server test && pnpm --filter @workspace/mobile test",
     "build:mobile": "pnpm --filter @workspace/mobile build",
-    "verify:web": "pnpm --filter @workspace/api-server typecheck:web && pnpm --filter @workspace/mobile build",
-    "verify:http": "pnpm --filter lnkz verify:http",
-    "verify:mobile": "pnpm --filter @workspace/mobile typecheck && pnpm --filter @workspace/mobile test",
-    "infra:synth": "npm --prefix apps/llmm run infra:synth"
+    "codegen": "pnpm --filter @workspace/api-spec codegen",
+    "verify:api": "pnpm --filter @workspace/api-server typecheck && pnpm --filter @workspace/api-server test",
+    "verify:mobile": "pnpm --filter @workspace/mobile typecheck && pnpm --filter @workspace/mobile test"
   },
   "private": true,
   "pnpm": {
