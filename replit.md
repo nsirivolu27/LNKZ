@@ -10,6 +10,7 @@ from a mobile client through an authenticated API.
 - `pnpm run typecheck` — typecheck the mobile/API workspace
 - `pnpm run build` — typecheck and build the API
 - `pnpm run build:mobile` — create the static Expo Go build
+- `pnpm run codegen` — regenerate the mobile API client and shared Zod schemas
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string; the development database must have LNKZ migrations applied
 
