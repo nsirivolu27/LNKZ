@@ -1,36 +1,36 @@
-# LLMM — Large Language Model Mover
+# LNKZ Mobile and API
 
-LLMM moves useful conversation context between large language models, AI clients, devices, and people.
+LNKZ captures, searches, packages, and securely hands off conversation context
+from a mobile client through an authenticated API.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the LLMM server (port 8080)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
+- `pnpm --filter @workspace/api-server run dev` — run the LNKZ API server
+- `pnpm --filter @workspace/mobile run dev` — run the Expo mobile app
+- `pnpm run typecheck` — typecheck the mobile/API workspace
+- `pnpm run build` — typecheck and build the API
+- `pnpm run build:mobile` — create the static Expo Go build
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string; the development database must have LLMM migrations applied
+- Required env: `DATABASE_URL` — Postgres connection string; the development database must have LNKZ migrations applied
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API/MCP: Express 5 with stateless Streamable HTTP
+- API/MCP: Express 5 with stateless Streamable HTTP and REST
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Build: esbuild (ESM bundle)
 
 ## Where things live
 
-- `artifacts/api-server/src/lnkz/` — LLMM server, MCP tools, storage, imports, analysis, and connectors
-- `artifacts/api-server/web-dist/` — LLMM web console and landing page
+- `artifacts/api-server/src/lnkz/` — LNKZ API, MCP tools, storage, imports, analysis, and connectors
 - `artifacts/api-server/.replit-artifact/artifact.toml` — preview and publishing configuration
-- `.local/conversation-workspace/files/` — preserved upstream repository materials used during migration
 
 ## Architecture decisions
 
-- Product name is LLMM; `LNKZ_*` environment variables, MCP tool names, and `lnkz://` resource URIs remain compatibility contracts.
-- MCP, REST, and the web console share the same `ConversationStore` contract.
+- Product name is LNKZ; `LNKZ_*` environment variables, MCP tool names, and `lnkz://` resource URIs remain compatibility contracts.
+- MCP and REST share the same `ConversationStore` contract.
 - SQLite remains local single-tenant mode; Postgres provides workspace RLS and actor-scoped authorization.
 
 ## Product

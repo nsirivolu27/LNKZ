@@ -28,7 +28,6 @@ export interface AppConfig {
   allowedHosts: string[];
   allowedOrigins: string[];
   maxBody: string;
-  webDistDir?: string;
   trustProxy: boolean | number;
   rateLimitWindowMs: number;
   shareRateLimit: number;
@@ -121,7 +120,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       exactOrigin(env.REPLIT_EXPO_DEV_DOMAIN),
     ]),
     maxBody: env.LNKZ_MAX_BODY?.trim() || "24mb",
-    webDistDir: env.WEB_DIST_DIR?.trim() || undefined,
     trustProxy: proxySetting(env.LNKZ_TRUST_PROXY),
     rateLimitWindowMs: integer(env.LNKZ_RATE_LIMIT_WINDOW_MS, 60_000, 1_000, 86_400_000, "LNKZ_RATE_LIMIT_WINDOW_MS"),
     shareRateLimit: nonNegativeInteger(env.LNKZ_SHARE_RATE_LIMIT, 60, "LNKZ_SHARE_RATE_LIMIT"),
