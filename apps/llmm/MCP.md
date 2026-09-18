@@ -1,4 +1,8 @@
-# LLMM MCP and API reference
+# LLMM MCP and API reference (historical)
+
+> This document describes the earlier LLMM/LNKZ-compatible surface. For current relay
+> development, use [`apps/lnkz/MCP.md`](../lnkz/MCP.md). For standalone MCP transport
+> and catalog work, use [`packages/lnkz-mcp/README.md`](../../packages/lnkz-mcp/README.md).
 
 LLMM preserves the existing LNKZ MCP contract while presenting the product as the Large Language Model Mover. Clients can continue using the established tool names, resource URIs, and LNKZ_* configuration without migration work.
 

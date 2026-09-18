@@ -1,8 +1,14 @@
 <div align="center">
 
-# LLMM
+# LLMM — Historical Compatibility Repository
 
 **Large Language Model Mover**
+
+> **Repository status:** LLMM is the historical predecessor to the current LNKZ
+> conversation product. New relay, storage, handoff, mobile, and web-console work
+> belongs in [`nsirivolu27/LNKZ`](https://github.com/nsirivolu27/LNKZ). New standalone
+> MCP/catalog work belongs in [`nsirivolu27/lnkz-mcp`](https://github.com/nsirivolu27/lnkz-mcp),
+> the repository being prepared for the Magentic product direction.
 
 **Your best conversations are trapped in whichever app you had them in. LLMM gets them out.**
 
@@ -24,16 +30,23 @@ LLMM moves useful working context between large language models, AI clients, dev
 
 The product name is LLMM. Existing LNKZ-prefixed environment variables, MCP tool names, and lnkz:// resource URIs remain compatibility contracts while the implementation transitions.
 
-## Repository boundary
+## Historical repository boundary
 
-This repository is the complete LLMM product: its web console, product-facing UI, API integration,
-deployment assets, and the embedded REST-only LNKZ relay service used by the app. The relay owns
-the database, imports, exports, context intelligence, connectors, handoffs, graph, and publish
-preparation.
+This repository preserves the earlier LLMM product shape: its web console, product-facing UI,
+API integration, deployment assets, and an embedded REST-only relay. It remains useful for
+historical compatibility and migration reference, but it is not the canonical home for new
+conversation-relay development.
 
-The standalone MCP adapter is maintained separately in
-[`nsirivolu27/lnkz-mcp`](https://github.com/nsirivolu27/lnkz-mcp). It owns no UI, database, stores,
-or connectors: it translates MCP calls into authenticated REST calls to this repository.
+The canonical ownership is now:
+
+- **LNKZ:** conversation storage, imports/exports, context intelligence, handoffs, connectors,
+  relay REST API, embedded MCP compatibility endpoints, web console, and mobile app.
+- **Magentic / `lnkz-mcp`:** standalone MCP transport, agent catalog, marketplace specification,
+  and the authenticated REST adapter for LNKZ.
+- **LLMM:** historical code, compatibility contracts, and migration reference only.
+
+The repositories communicate through published REST/API contracts. No canonical repository
+should require a sibling checkout, a local path, or a Git dependency to build or deploy.
 
 ## The problem
 

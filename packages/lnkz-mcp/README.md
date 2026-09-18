@@ -1,14 +1,20 @@
-# LNKZ MCP
+# Magentic MCP adapter (published as `lnkz-mcp`)
 
-LNKZ MCP is the standalone Model Context Protocol adapter for the LNKZ relay built into [LLMM](https://github.com/nsirivolu27/LLMM). It exposes the existing LNKZ tools, resources, and prompts to MCP clients while using the relay's authenticated REST API for every operation.
+This is the standalone Model Context Protocol adapter for the canonical
+[LNKZ](https://github.com/nsirivolu27/LNKZ) conversation relay. It is the
+Magentic-facing home for MCP transport, the agent catalog, and the marketplace
+specification. It exposes LNKZ tools, resources, and prompts to MCP clients
+through the relay's authenticated REST API.
 
-This repository contains no LLMM console, database, conversation store, import pipeline, connector implementation, or product branding. Run LLMM/LNKZ separately, then point this adapter at it.
+This repository contains no LLMM console, database, conversation store, import
+pipeline, connector implementation, or relay deployment. Run or deploy LNKZ
+independently, then point this adapter at its published REST endpoint.
 
 ## Requirements
 
 - Node.js 22
 - pnpm 10.26.1 through Corepack
-- A running LLMM/LNKZ relay
+- A running LNKZ relay
 - A relay API key with the scopes needed by the tools you use
 
 ## Install and build
@@ -70,6 +76,14 @@ It also preserves the `lnkz://connectors`, `lnkz://stats`, `lnkz://conversations
 
 ## Repository boundary
 
-- Product UI, relay REST API, stores, authentication, managed OIDC membership, connectors, import/export implementation, intelligence, graph construction, and publish-target discovery belong in [LLMM](https://github.com/nsirivolu27/LLMM).
-- MCP registration, stdio transport, REST wire contract, and the authenticated REST client belong here.
+- Conversation product UI, relay REST API, stores, authentication, managed OIDC membership,
+  connectors, import/export implementation, intelligence, graph construction, mobile app,
+  and publish-target discovery belong in [LNKZ](https://github.com/nsirivolu27/LNKZ).
+- MCP registration, stdio/HTTP transport, REST wire contract, authenticated REST client,
+  agent catalog, and marketplace specification belong here.
+- The two repositories communicate through the published LNKZ REST contract; neither requires
+  a sibling checkout or a Git dependency from the other.
 - RSNA work belongs only in [rsna-knee-abnormality-detection](https://github.com/nsirivolu27/rsna-knee-abnormality-detection).
+
+See [MARKETPLACE.md](MARKETPLACE.md) for the Magentic package model and its
+scope-review rules.

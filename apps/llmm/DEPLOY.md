@@ -1,4 +1,8 @@
-# Deploying LLMM
+# Deploying LLMM (historical compatibility deployment)
+
+> This runbook is preserved for the legacy LLMM checkout. New relay deployments should
+> use [`apps/lnkz/DEPLOY.md`](../lnkz/DEPLOY.md), which is self-contained and does not
+> depend on this directory or another repository checkout.
 
 LLMM runs as one container: a Node process serving the site and REST API. MCP clients use the
 standalone `lnkz-mcp` stdio adapter. It needs a persistent disk, because the SQLite store lives on it, and TLS, because

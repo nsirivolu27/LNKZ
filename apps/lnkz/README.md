@@ -109,15 +109,12 @@ Use the native device/QR preview for SecureStore-backed credentials; the web
 preview uses browser storage. Never put an API key, database credential, or
 MCP context secret in an `EXPO_PUBLIC_*` variable.
 
-## AWS and security boundaries
+## Deployment and security boundaries
 
-The CDK reference stack is in `../llmm/infra` and is intentionally not
-deployed by this repository. It requires AWS credentials, a configured CDK
-account/region, an ECR image tag, and operator approval before enabling the
-conditional App Runner service. It retains a private, TLS-enabled RDS
-PostgreSQL instance in isolated subnets, an ECR repository, KMS encryption,
-Secrets Manager, VPC/security groups, and a private export bucket. App Runner
-sets production mode and fail-closed authentication explicitly.
+This repository contains the canonical LNKZ relay and its deployment assets.
+It can be built and deployed independently; no LLMM checkout, Git dependency,
+or local sibling path is required. Use `Dockerfile`, `docker-compose.yml`, and
+[DEPLOY.md](DEPLOY.md) for the supported deployment path.
 
 Use the migration-only database secret only for `pnpm db:migrate`. App Runner
 receives only the non-owner runtime database secret and API-key secret; its
@@ -149,7 +146,7 @@ permissions and reverse-proxy settings before sharing an instance.
 | Repository | What it owns |
 | --- | --- |
 | This repository | The relay and its REST and MCP surfaces |
-| [LLMM](https://github.com/nsirivolu27/LLMM) | A separate product and console built on the relay |
-| [lnkz-mcp](https://github.com/nsirivolu27/lnkz-mcp) | A standalone MCP adapter for a remotely hosted relay |
+| [lnkz-mcp / Magentic](https://github.com/nsirivolu27/lnkz-mcp) | Standalone MCP transport, agent catalog, and marketplace direction |
+| [LLMM](https://github.com/nsirivolu27/LLMM) | Historical compatibility repository and migration reference |
 
 Licensed under [MIT](LICENSE).

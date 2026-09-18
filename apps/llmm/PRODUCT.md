@@ -1,6 +1,10 @@
-# LLMM — Large Language Model Mover
+# LLMM — Historical Product Definition
 
-## MVP definition
+> LLMM is retained as a compatibility and migration reference. The active conversation
+> product is LNKZ; the active general MCP/catalog direction is Magentic in `lnkz-mcp`.
+> Do not add new canonical product surfaces here.
+
+## Historical MVP definition
 
 LLMM moves useful working context between large language models, AI clients, devices, and people. It is not another chat client and it is not a transcript archive. It is the portable context layer that lets a thread continue somewhere else without starting over.
 
