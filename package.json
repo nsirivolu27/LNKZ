@@ -15,7 +15,7 @@
     "dev:web": "pnpm --filter @lnkz/web dev",
     "dev:mobile": "pnpm --filter @lnkz/mobile start",
     "infra:synth": "corepack pnpm --filter @lnkz/infra synth",
-    "test": "tsc -p tsconfig.test.json && node scripts/copy-test-migrations.mjs && node --test .testbuild/tests/*.test.js",
+    "test": "node scripts/prepare-tests.mjs && tsc -p tsconfig.test.json && node scripts/copy-test-migrations.mjs && node --test .testbuild/tests/*.test.js",
     "verify:http": "node ./scripts/verify-http.mjs",
     "verify:web": "node ./scripts/verify-web.mjs",
     "verify:journey": "node ./scripts/acceptance.mjs",

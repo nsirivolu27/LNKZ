@@ -25,6 +25,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm build:mobile
       - run: pnpm verify:web
       - run: pnpm verify:http
       # The MVP gate. Starts two relays on separate databases and walks the
