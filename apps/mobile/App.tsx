@@ -8,9 +8,8 @@ import {
   SafeAreaView,
   ScrollView,
   Share,
-  StyleSheet,
   Switch,
-  Text,
+  Text as NativeText,
   TextInput,
   View,
 } from "react-native";
@@ -30,6 +29,7 @@ import {
   type Packet,
   type Stats,
 } from "./src/api";
+import { useTheme } from "./src/styles";
 import { clearConnection, loadConnection, saveConnection, type StoredConnection } from "./src/storage";
 
 type Tab = "home" | "library" | "import" | "handoffs" | "settings";
@@ -46,6 +46,7 @@ const DEFAULT_URL = process.env.EXPO_PUBLIC_LNKZ_API_URL
   ?? (Platform.OS === "web" && typeof window !== "undefined" ? window.location.origin : "http://localhost:3100");
 
 export default function App() {
+  const { styles, colors, dark } = useTheme();
   const [booting, setBooting] = useState(true);
   const [connection, setConnection] = useState<StoredConnection | null>(null);
 
@@ -59,8 +60,8 @@ export default function App() {
   if (booting) {
     return (
       <SafeAreaView style={styles.boot}>
-        <StatusBar style="dark" />
-        <ActivityIndicator color="#0b0c0b" />
+        <StatusBar style={dark ? "light" : "dark"} />
+        <ActivityIndicator color={colors.accent} />
         <Text style={styles.mono}>RESTORING YOUR RELAY</Text>
       </SafeAreaView>
     );
@@ -74,6 +75,7 @@ export default function App() {
 }
 
 function ConnectionScreen({ onConnected }: { onConnected: (connection: StoredConnection) => void }) {
+  const { styles, dark } = useTheme();
   const [baseUrl, setBaseUrl] = useState(DEFAULT_URL);
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -100,7 +102,7 @@ function ConnectionScreen({ onConnected }: { onConnected: (connection: StoredCon
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar style="light" />
+      <StatusBar style={dark ? "light" : "dark"} />
       <View style={styles.ticker}><Text style={styles.tickerText}>★ KEEP THE CONTEXT · LOSE THE NOISE · PRIVATE BY DEFAULT</Text></View>
       <ScrollView contentContainerStyle={styles.connectionPage} keyboardShouldPersistTaps="handled">
         <Text style={styles.brandMark}>△</Text>
@@ -119,6 +121,7 @@ function ConnectionScreen({ onConnected }: { onConnected: (connection: StoredCon
 }
 
 function RelayApp({ connection, onDisconnect }: { connection: StoredConnection; onDisconnect: () => void }) {
+  const { styles, colors, dark } = useTheme();
   const client = useMemo(() => new LnkzClient(connection.baseUrl, connection.apiKey), [connection]);
   const [tab, setTab] = useState<Tab>("home");
   const [stats, setStats] = useState<Stats | null>(null);
@@ -179,7 +182,7 @@ function RelayApp({ connection, onDisconnect }: { connection: StoredConnection; 
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar style="light" />
+      <StatusBar style={dark ? "light" : "dark"} />
       <View style={styles.ticker}><Text style={styles.tickerText}>★ KEEP THE CONTEXT · LOSE THE NOISE · PRIVATE HANDOFF · LNKZ</Text></View>
       <View style={styles.header}>
         <View><Text style={styles.headerBrand}>△ LNKZ</Text><Text style={styles.headerMeta}>CONTEXT RELAY · PRIVATE BY DEFAULT</Text></View>
@@ -194,7 +197,7 @@ function RelayApp({ connection, onDisconnect }: { connection: StoredConnection; 
         ))}
       </ScrollView>
       <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-        {loading ? <ActivityIndicator color="#0b0c0b" style={styles.loader} /> : null}
+        {loading ? <ActivityIndicator color={colors.accent} style={styles.loader} /> : null}
         {error ? <Notice tone="error">{error}</Notice> : null}
         {notice ? <Notice>{notice}</Notice> : null}
         {tab === "home" && <Home stats={stats} conversations={conversations} onOpen={openConversation} onTab={selectTab} />}
@@ -240,6 +243,7 @@ function Home({ stats, conversations, onOpen, onTab }: {
   onOpen: (id: string) => Promise<void>;
   onTab: (tab: Tab) => void;
 }) {
+  const { styles } = useTheme();
   return (
     <View>
       <Text style={styles.eyebrow}>RELAY / LIVE WORKSPACE / READY WHEN YOU ARE</Text>
@@ -270,6 +274,7 @@ function Library({ client, conversations, selected, selectedId, busy, onOpen }: 
   busy: string;
   onOpen: (id: string) => Promise<void>;
 }) {
+  const { styles, colors } = useTheme();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ConversationSummary[]>(conversations);
   const [searching, setSearching] = useState(false);
@@ -294,7 +299,7 @@ function Library({ client, conversations, selected, selectedId, busy, onOpen }: 
         <ConversationRow key={item.id} item={item} index={index + 1} selected={selectedId === item.id} onPress={() => void onOpen(item.id)} />
       ))}
       {!results.length ? <Empty>No matching conversations.</Empty> : null}
-      {busy === "conversation" ? <ActivityIndicator color="#0b0c0b" /> : null}
+      {busy === "conversation" ? <ActivityIndicator color={colors.accent} /> : null}
       {selected ? <ConversationDetail client={client} value={selected} onChanged={() => onOpen(selected.conversation.id)} /> : null}
     </View>
   );
@@ -305,6 +310,7 @@ function ConversationDetail({ client, value, onChanged }: {
   value: { conversation: Conversation; analysis: Analysis };
   onChanged: () => Promise<void>;
 }) {
+  const { styles, colors } = useTheme();
   const [followUp, setFollowUp] = useState("");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState("");
@@ -344,7 +350,7 @@ function ConversationDetail({ client, value, onChanged }: {
         </View>
       ))}
       <SectionTitle>ADD A FOLLOW-UP</SectionTitle>
-      <TextInput multiline textAlignVertical="top" style={styles.textarea} value={followUp} onChangeText={setFollowUp} placeholder="What happened next…" placeholderTextColor="#77776f" />
+      <TextInput multiline textAlignVertical="top" style={styles.textarea} value={followUp} onChangeText={setFollowUp} placeholder="What happened next…" placeholderTextColor={colors.subtle} />
       {problem ? <Text style={styles.hint}>{problem}</Text> : null}
       <Action label={saving ? "SAVING…" : "SAVE FOLLOW-UP →"} onPress={save} disabled={saving} secondary />
     </View>
@@ -360,6 +366,7 @@ function ConversationDetail({ client, value, onChanged }: {
  * not an address and tells a person nothing.
  */
 function Provenance({ lineage }: { lineage?: Lineage }) {
+  const { styles } = useTheme();
   if (!lineage?.originInstance && !lineage?.continuedBy && !lineage?.parentId) return null;
   return (
     <View style={styles.provenance}>
@@ -387,6 +394,7 @@ function ImportView({ client, busy, setBusy, onImported, setError }: {
   onImported: (conversation: ConversationSummary) => Promise<void>;
   setError: (value: string) => void;
 }) {
+  const { styles, colors } = useTheme();
   const [payload, setPayload] = useState("");
   const [tags, setTags] = useState("");
 
@@ -414,7 +422,7 @@ function ImportView({ client, busy, setBusy, onImported, setError }: {
       <Text style={styles.pageTitle}>BRING IT{"\n"}<Text style={styles.highlight}>WITH YOU.</Text></Text>
       <Field label="TAGS (OPTIONAL)" value={tags} onChangeText={setTags} placeholder="research, launch" />
       <Text style={styles.fieldLabel}>CONVERSATION OR EXPORT</Text>
-      <TextInput multiline textAlignVertical="top" style={styles.textarea} value={payload} onChangeText={setPayload} placeholder="Paste ChatGPT, Claude, Gemini, Markdown, JSON, or plain text…" placeholderTextColor="#77776f" />
+      <TextInput multiline textAlignVertical="top" style={styles.textarea} value={payload} onChangeText={setPayload} placeholder="Paste ChatGPT, Claude, Gemini, Markdown, JSON, or plain text…" placeholderTextColor={colors.subtle} />
       <Text style={styles.hint}>LNKZ detects the format and preserves the original message order.</Text>
       <Action label={busy === "import" ? "IMPORTING…" : "IMPORT CONVERSATION →"} onPress={run} disabled={busy === "import"} />
       <View style={styles.divider} />
@@ -441,6 +449,7 @@ function ReceiveLink({ client, onReceived, setError }: {
   onReceived: (conversation: ConversationSummary) => Promise<void>;
   setError: (value: string) => void;
 }) {
+  const { styles, colors } = useTheme();
   const [url, setUrl] = useState("");
   const [provider, setProvider] = useState("");
   const [role, setRole] = useState<"user" | "assistant">("user");
@@ -511,7 +520,7 @@ function ReceiveLink({ client, onReceived, setError }: {
         <Action label={role === "user" ? "✓ MY MESSAGE" : "MY MESSAGE"} onPress={() => setRole("user")} secondary />
         <Action label={role === "assistant" ? "✓ MODEL RESPONSE" : "MODEL RESPONSE"} onPress={() => setRole("assistant")} secondary />
       </View>
-      <TextInput multiline textAlignVertical="top" style={styles.textarea} value={reply} onChangeText={setReply} placeholder="What you are adding on top of their work…" placeholderTextColor="#77776f" />
+      <TextInput multiline textAlignVertical="top" style={styles.textarea} value={reply} onChangeText={setReply} placeholder="What you are adding on top of their work…" placeholderTextColor={colors.subtle} />
       <Action label={working === "continue" ? "CONTINUING…" : "CONTINUE IT HERE →"} onPress={() => void take("continue")} disabled={Boolean(working) || !preview} />
       <Action label={working === "copy" ? "IMPORTING…" : "JUST KEEP A COPY"} onPress={() => void take("copy")} secondary disabled={Boolean(working) || !preview} />
       <Text style={styles.hint}>Preview first, then choose one action. Receiving spends one use. LNKZ saves the turn you enter; it does not call the named model.</Text>
@@ -529,6 +538,7 @@ function HandoffsView({ client, conversations, handoffs, selectedId, onSelect, r
   setError: (value: string) => void;
   setNotice: (value: string) => void;
 }) {
+  const { styles, colors } = useTheme();
   const [ttl, setTtl] = useState("60");
   const [uses, setUses] = useState("3");
   const [audience, setAudience] = useState("");
@@ -606,7 +616,7 @@ function HandoffsView({ client, conversations, handoffs, selectedId, onSelect, r
             <View style={styles.fieldHalf}><Field label="EXPIRES IN MINUTES" value={ttl} onChangeText={setTtl} keyboardType="number-pad" /></View>
             <View style={styles.fieldHalf}><Field label="MAX USES" value={uses} onChangeText={setUses} keyboardType="number-pad" /></View>
           </View>
-          <View style={styles.switchRow}><View><Text style={styles.switchTitle}>REDACT SENSITIVE TEXT</Text><Text style={styles.hint}>Remove emails, secrets, and bearer tokens.</Text></View><Switch value={redact} onValueChange={setRedact} trackColor={{ false: "#b8b5ac", true: "#719068" }} /></View>
+          <View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.switchTitle}>REDACT SENSITIVE TEXT</Text><Text style={styles.hint}>Remove emails, secrets, and bearer tokens.</Text></View><Switch value={redact} onValueChange={setRedact} trackColor={{ false: colors.strong, true: colors.accent }} /></View>
           <Action label={working === "handoff" ? "CREATING…" : "CREATE PRIVATE HANDOFF →"} onPress={create} disabled={Boolean(working)} />
           {issued ? <View style={styles.successCard}><Text style={styles.detailLabel}>EXPIRING HANDOFF LINK</Text><Text selectable style={styles.link}>{issued.shareUrl}</Text><Action label="COPY OR SHARE LINK" onPress={() => void share(issued.shareUrl)} secondary /></View> : null}
         </>
@@ -632,6 +642,7 @@ function SettingsView({ connection, stats, connectors, client, disconnect, setEr
   setError: (value: string) => void;
   setNotice: (value: string) => void;
 }) {
+  const { styles } = useTheme();
   const [testing, setTesting] = useState(false);
   const retest = async () => {
     setTesting(true); setError("");
@@ -660,6 +671,7 @@ function SettingsView({ connection, stats, connectors, client, disconnect, setEr
 }
 
 function ConversationRow({ item, index, selected, onPress }: { item: ConversationSummary; index: number; selected?: boolean; onPress: () => void }) {
+  const { styles } = useTheme();
   return (
     <Pressable style={[styles.conversationRow, selected && styles.conversationSelected]} onPress={onPress}>
       <Text style={styles.rowIndex}>{String(index).padStart(2, "0")}</Text>
@@ -671,22 +683,29 @@ function ConversationRow({ item, index, selected, onPress }: { item: Conversatio
 }
 
 function Field(props: ComponentProps<typeof TextInput> & { label: string }) {
+  const { styles, colors } = useTheme();
   const { label, style, ...inputProps } = props;
-  return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput placeholderTextColor="#77776f" style={[styles.input, style]} {...inputProps} /></View>;
+  return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput accessibilityLabel={label} placeholderTextColor={colors.subtle} style={[styles.input, style]} {...inputProps} /></View>;
 }
 
 function Action({ label, onPress, secondary, disabled }: { label: string; onPress: () => void | Promise<void>; secondary?: boolean; disabled?: boolean }) {
-  return <Pressable style={[styles.action, secondary && styles.actionSecondary, disabled && styles.disabled]} onPress={() => void onPress()} disabled={disabled}><Text style={[styles.actionText, secondary && styles.actionSecondaryText]}>{label}</Text></Pressable>;
+  const { styles } = useTheme();
+  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: Boolean(disabled) }} style={[styles.action, secondary && styles.actionSecondary, disabled && styles.disabled]} onPress={() => void onPress()} disabled={disabled}><Text style={[styles.actionText, secondary && styles.actionSecondaryText]}>{label}</Text></Pressable>;
 }
 
 function Notice({ children, tone }: { children: ReactNode; tone?: "error" }) {
+  const { styles } = useTheme();
   return <View style={[styles.notice, tone === "error" && styles.errorNotice]}><Text style={styles.noticeText}>{children}</Text></View>;
 }
 
-function SectionTitle({ children }: { children: ReactNode }) { return <Text style={styles.sectionTitle}>{children}</Text>; }
-function Empty({ children }: { children: ReactNode }) { return <Text style={styles.empty}>{children}</Text>; }
-function Stat({ label, value }: { label: string; value: number }) { return <View style={styles.stat}><Text style={styles.statLabel}>{label}</Text><Text style={styles.statValue}>{value}</Text></View>; }
+function SectionTitle({ children }: { children: ReactNode }) {
+  const { styles } = useTheme(); return <Text style={styles.sectionTitle}>{children}</Text>; }
+function Empty({ children }: { children: ReactNode }) {
+  const { styles } = useTheme(); return <Text style={styles.empty}>{children}</Text>; }
+function Stat({ label, value }: { label: string; value: number }) {
+  const { styles } = useTheme(); return <View style={styles.stat}><Text style={styles.statLabel}>{label}</Text><Text style={styles.statValue}>{value}</Text></View>; }
 function ClaimList({ title, values }: { title: string; values: string[] }) {
+  const { styles } = useTheme();
   if (!values.length) return null;
   return <View><SectionTitle>{title}</SectionTitle>{values.slice(0, 5).map((value, index) => <Text key={`${title}-${index}`} style={styles.claim}>• {value}</Text>)}</View>;
 }
@@ -696,88 +715,8 @@ function shortDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(undefined, { month: "short", day: "numeric" }).toUpperCase();
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#0b0c0b" },
-  boot: { flex: 1, gap: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#f4f1e9" },
-  ticker: { height: 32, justifyContent: "center", overflow: "hidden", paddingHorizontal: 12, backgroundColor: "#0b0c0b" },
-  tickerText: { color: "#f4f1e9", fontSize: 9, fontWeight: "800", letterSpacing: 1.4 },
-  mono: { fontSize: 10, fontWeight: "800", letterSpacing: 1.5 },
-  connectionPage: { flexGrow: 1, padding: 22, paddingBottom: 50, backgroundColor: "#f4f1e9" },
-  brandMark: { fontSize: 28, fontWeight: "900" },
-  connectionTitle: { marginTop: 4, fontSize: 34, fontWeight: "900", letterSpacing: -1.5 },
-  eyebrow: { alignSelf: "flex-start", marginBottom: 18, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: "#0b0c0b", fontSize: 8, fontWeight: "800", letterSpacing: 1 },
-  hero: { marginBottom: 16, fontSize: 48, lineHeight: 45, fontWeight: "900", letterSpacing: -2 },
-  crossed: { textDecorationLine: "line-through", color: "#66665f" },
-  highlight: { backgroundColor: "#dce8d6" },
-  copy: { marginBottom: 20, maxWidth: 420, fontSize: 13, lineHeight: 19 },
-  field: { marginBottom: 14 },
-  fieldLabel: { marginBottom: 6, fontSize: 9, fontWeight: "900", letterSpacing: 1.1 },
-  input: { minHeight: 46, borderWidth: 2, borderColor: "#0b0c0b", paddingHorizontal: 12, backgroundColor: "#ebe8df", color: "#0b0c0b", fontSize: 13 },
-  textarea: { minHeight: 220, borderWidth: 2, borderColor: "#0b0c0b", padding: 12, backgroundColor: "#ebe8df", color: "#0b0c0b", fontSize: 12, lineHeight: 18 },
-  hint: { marginTop: 8, color: "#66665f", fontSize: 10, lineHeight: 15 },
-  notice: { marginBottom: 14, borderWidth: 1, borderColor: "#0b0c0b", padding: 10, backgroundColor: "#dce8d6" },
-  errorNotice: { backgroundColor: "#f2b39c" },
-  noticeText: { fontSize: 11, fontWeight: "700", lineHeight: 16 },
-  action: { minHeight: 46, alignItems: "center", justifyContent: "center", marginTop: 10, borderWidth: 2, borderColor: "#0b0c0b", backgroundColor: "#0b0c0b", paddingHorizontal: 14 },
-  actionSecondary: { backgroundColor: "#f4f1e9" },
-  actionText: { color: "#f4f1e9", fontSize: 10, fontWeight: "900", letterSpacing: .8 },
-  actionSecondaryText: { color: "#0b0c0b" },
-  disabled: { opacity: .5 },
-  header: { minHeight: 76, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 2, borderBottomColor: "#0b0c0b", paddingLeft: 14, backgroundColor: "#f4f1e9" },
-  headerBrand: { fontSize: 24, fontWeight: "900", letterSpacing: -1 },
-  headerMeta: { marginTop: 3, fontSize: 7, fontWeight: "800", letterSpacing: 1 },
-  refreshButton: { alignSelf: "stretch", justifyContent: "center", borderLeftWidth: 2, borderLeftColor: "#0b0c0b", paddingHorizontal: 16, backgroundColor: "#dce8d6" },
-  refreshText: { fontSize: 10, fontWeight: "900" },
-  nav: { flexGrow: 0, maxHeight: 62, backgroundColor: "#f4f1e9", borderBottomWidth: 2, borderBottomColor: "#0b0c0b" },
-  navContent: { minWidth: "100%" },
-  navItem: { minWidth: 92, minHeight: 60, justifyContent: "center", gap: 4, borderRightWidth: 1, borderRightColor: "#0b0c0b", paddingHorizontal: 10 },
-  navItemActive: { backgroundColor: "#0b0c0b" },
-  navIndex: { fontSize: 8, fontWeight: "700" },
-  navLabel: { fontSize: 9, fontWeight: "900" },
-  navActiveText: { color: "#f4f1e9" },
-  page: { flexGrow: 1, minHeight: "100%", padding: 16, paddingBottom: 80, backgroundColor: "#f4f1e9" },
-  loader: { marginBottom: 12 },
-  pageTitle: { marginBottom: 20, fontSize: 40, lineHeight: 40, fontWeight: "900", letterSpacing: -1.5 },
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", marginVertical: 12, borderTopWidth: 1, borderLeftWidth: 1, borderColor: "#0b0c0b" },
-  stat: { width: "50%", minHeight: 82, justifyContent: "space-between", borderRightWidth: 1, borderBottomWidth: 1, borderColor: "#0b0c0b", padding: 12 },
-  statLabel: { fontSize: 8, fontWeight: "900", letterSpacing: 1 },
-  statValue: { fontSize: 28, fontWeight: "900" },
-  sectionTitle: { marginTop: 22, marginBottom: 9, borderBottomWidth: 1, borderBottomColor: "#0b0c0b", paddingBottom: 7, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
-  conversationRow: { minHeight: 66, flexDirection: "row", alignItems: "center", gap: 9, borderBottomWidth: 1, borderBottomColor: "#0b0c0b", paddingVertical: 10 },
-  conversationSelected: { backgroundColor: "#dce8d6", paddingHorizontal: 8 },
-  rowIndex: { width: 20, fontSize: 9, fontWeight: "800" },
-  sourceBadge: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#0b0c0b", backgroundColor: "#ebe8df" },
-  sourceText: { fontSize: 9, fontWeight: "900" },
-  flex: { flex: 1 },
-  rowTitle: { fontSize: 12, fontWeight: "800", lineHeight: 16 },
-  meta: { marginTop: 3, color: "#66665f", fontSize: 8, fontWeight: "700", lineHeight: 12, letterSpacing: .25 },
-  arrow: { fontSize: 18, fontWeight: "900" },
-  buttonRow: { flexDirection: "row", gap: 8, marginTop: 14 },
-  divider: { height: 1, marginVertical: 18, backgroundColor: "#0b0c0b" },
-  empty: { borderWidth: 1, borderColor: "#0b0c0b", padding: 14, color: "#66665f", fontSize: 11 },
-  detailCard: { marginTop: 24, borderWidth: 2, borderColor: "#0b0c0b", padding: 14, backgroundColor: "#ebe8df" },
-  provenance: { marginTop: 12, paddingLeft: 10, borderLeftWidth: 3, borderLeftColor: "#1f6f3f" },
-  detailLabel: { fontSize: 8, fontWeight: "900", letterSpacing: 1 },
-  detailTitle: { marginTop: 8, fontSize: 19, fontWeight: "900", lineHeight: 23 },
-  claim: { marginBottom: 6, fontSize: 11, lineHeight: 16 },
-  message: { marginBottom: 9, borderWidth: 1, borderColor: "#0b0c0b", padding: 10, backgroundColor: "#f4f1e9" },
-  assistantMessage: { backgroundColor: "#dce8d6" },
-  messageRole: { marginBottom: 5, fontSize: 8, fontWeight: "900", letterSpacing: 1, textTransform: "uppercase" },
-  messageText: { fontSize: 11, lineHeight: 17 },
-  fieldRow: { flexDirection: "row", gap: 10 },
-  fieldHalf: { flex: 1 },
-  switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginVertical: 12, borderWidth: 1, borderColor: "#0b0c0b", padding: 12 },
-  switchTitle: { fontSize: 9, fontWeight: "900", letterSpacing: .7 },
-  packet: { marginTop: 10, maxHeight: 280, borderWidth: 1, borderColor: "#0b0c0b", padding: 12, backgroundColor: "#ebe8df" },
-  packetText: { marginTop: 8, fontSize: 10, lineHeight: 15 },
-  successCard: { marginTop: 14, borderWidth: 2, borderColor: "#0b0c0b", padding: 12, backgroundColor: "#dce8d6" },
-  link: { marginTop: 7, fontSize: 10, fontWeight: "700", lineHeight: 15 },
-  handoffRow: { minHeight: 66, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: "#0b0c0b", paddingVertical: 10 },
-  revokeButton: { borderWidth: 1, borderColor: "#0b0c0b", paddingHorizontal: 9, paddingVertical: 7, backgroundColor: "#ef8a63" },
-  revokeText: { fontSize: 8, fontWeight: "900" },
-  connectorRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: "#0b0c0b", paddingVertical: 10 },
-  dot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1, borderColor: "#0b0c0b", backgroundColor: "#b8b5ac" },
-  dotOn: { backgroundColor: "#719068" },
-  disconnectButton: { minHeight: 44, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#0b0c0b", backgroundColor: "#ef8a63" },
-  disconnectText: { fontSize: 9, fontWeight: "900", letterSpacing: .8 },
-});
+
+function Text({ style, ...props }: ComponentProps<typeof NativeText>) {
+  const { colors } = useTheme();
+  return <NativeText {...props} style={[{ color: colors.text }, style]} />;
+}

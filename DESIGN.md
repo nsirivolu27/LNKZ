@@ -12,6 +12,11 @@ Dark is the base. The system light preference selects the full light palette;
 `data-theme="dark"` or `data-theme="light"` on the root explicitly overrides it.
 Both the landing page and console inherit the same tokens.
 
+The Expo mobile app uses the native equivalents in `apps/mobile/src/theme.ts`
+and the shared styles in `apps/mobile/src/styles.ts`. It follows the device's
+light/dark preference, with dark as the fallback. Keep these native values aligned
+with the vendored CSS tokens; no sibling checkout is needed at runtime.
+
 Use semantic CSS variables. No raw colour utilities and no opacity modifiers
 on variables. Existing `--ink`, `--muted`, `--line`, `--green`, `--lime`, and
 `--paper` names remain supported; the historical green/lime names alias the

@@ -39,6 +39,21 @@ test("expired handoffs expose neither preview nor transcript", async (t) => {
   assert.equal(await store.redeemHandoff(handoff.token), null);
 });
 
+test("revocation during conversation loading prevents the pending redemption", async (t) => {
+  const store = memoryStore();
+  t.after(() => store.close());
+  const saved = await store.save(conversation());
+  const handoff = await store.createHandoff({ conversationId: saved.id, ttlMinutes: 10, maxUses: 2 });
+  const get = store.get.bind(store);
+  t.mock.method(store, "get", async (id: string) => {
+    const value = await get(id);
+    await store.revokeHandoff(handoff.id);
+    return value;
+  });
+  assert.equal(await store.redeemHandoff(handoff.token), null);
+  assert.equal((await store.listHandoffs(saved.id))[0].uses, 0);
+});
+
 function conversation(overrides: Partial<ConversationInput> = {}): ConversationInput {
   return {
     title: "Launch decision",

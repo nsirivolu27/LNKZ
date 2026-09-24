@@ -34,6 +34,21 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.ok(ready, "built server should become ready");
+  const mobile = await fetch(base + "/mobile/");
+  assert.equal(mobile.status, 200, "the built mobile app must be served by the relay");
+  assert.match(mobile.headers.get("content-type"), /text\/html/);
+  const mobileHtml = await mobile.text();
+  const mobileScripts = [...mobileHtml.matchAll(/<script[^>]+src="([^"]+)"/g)];
+  assert.ok(mobileScripts.length > 0, "mobile HTML must reference the Expo bundle");
+  for (const [, script] of mobileScripts) {
+    const url = new URL(script, base + "/mobile/");
+    assert.equal(url.origin, base, "the mobile app must work without a separate asset server");
+    assert.ok(url.pathname.startsWith("/mobile/"), "Expo assets must use the mobile base path");
+    const asset = await fetch(url);
+    assert.equal(asset.status, 200, "mobile JavaScript must load from the running relay");
+    assert.match(asset.headers.get("content-type"), /javascript/);
+    assert.ok((await asset.text()).length > 0);
+  }
   for (const [path, title] of [["/", "LNKZ | Carry the conversation forward"], ["/console.html", "LNKZ Console"]]) {
     const response = await fetch(base + path);
     assert.equal(response.status, 200);
@@ -70,7 +85,7 @@ try {
   assert.equal((await redeemed.json()).conversation.id, id);
   assert.equal((await fetch(`${base}/share/${handoff.token}`)).status, 404);
   assert.equal(logs.includes(key) || logs.includes(handoff.token), false, "logs must omit bearer secrets");
-  console.log("Web pages/assets, console REST workflow, auth/origin boundaries, private-file isolation and handoff safety verified.");
+  console.log("Web/mobile pages and assets, console REST workflow, auth/origin boundaries, private-file isolation and handoff safety verified.");
 } finally {
   if (child.exitCode === null) {
     child.kill();
