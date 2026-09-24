@@ -21,6 +21,15 @@ separate migration worktrees are not part of this change.
 
 ## LNKZ, the LNKZ repository
 
+- Product scope is universal AI-content sharing to people, apps, AI platforms
+  and other receiving systems, as defined in ROADMAP.md. Conversation transfer
+  is the current foundation; media and general recipient delivery remain MVP
+  work. Workspaces are a separate product concern, not part of this release.
+- The messenger MVP requires end-to-end encryption. LNKZ owns client key/session
+  lifecycle and encrypted delivery. Magentic and server-side AI connectors do
+  not gain decryption access to private chats. Current plaintext relay features
+  remain separate until an explicit migration is implemented and verified.
+
 - Owns `src/lnkz/`: REST routes, storage, authentication, identity, import/export,
   deterministic analysis, handoffs, lineage, and domain authorization.
 - Owns `apps/mobile`, `apps/web`, and relay infrastructure and deployment assets.

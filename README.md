@@ -1,14 +1,24 @@
 # LNKZ
 
-**Your working context, out of the app it was trapped in.**
+**Create with AI anywhere. Share privately through LNKZ.**
 
-You spend an hour with a model working something out. It lands on an answer,
-names the tradeoffs, leaves two things open. Then you need it somewhere else:
-a different model, your phone, a teammate.
+LNKZ's MVP is an end-to-end encrypted messenger for AI-created content and its context: messages,
+conversations, images, videos, audio, documents and links sent to people, apps,
+AI platforms or other receiving systems. Workspaces remain separate.
 
-LNKZ saves the conversation, extracts its decisions with source messages, and
-hands that context to the next model or person through an expiring link. It
-runs on your machine or your server, with data you own.
+**Encryption status: not implemented.** The current relay can read stored
+conversations. API keys, HTTPS and expiring links do not make it E2EE. The new
+messenger requires device-side encryption and recipient-held keys before it can
+be described as end-to-end encrypted.
+
+**Implemented foundation:** LNKZ currently saves text conversations, extracts
+decisions with source messages, and transfers context through expiring handoff
+links. It runs on your machine or server. General media sharing, recipient inboxes
+and consumer onboarding are planned MVP work, not completed features.
+
+Files, pasted text and links are the universal fallback; direct platform delivery
+and continuation require supported integrations. See [ROADMAP.md](ROADMAP.md)
+for the revised user flow, acceptance gate and build order.
 
 This is the home of the combined LNKZ and LLMM project: the relay, web landing
 page, console, and deployment code are maintained together as **LNKZ**.

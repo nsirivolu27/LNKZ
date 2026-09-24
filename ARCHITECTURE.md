@@ -1,5 +1,73 @@
 # LNKZ architecture
 
+## Product scope and implementation status
+
+The revised MVP in [ROADMAP.md](ROADMAP.md) is sharing AI-created content and
+context from source platforms to people, apps, AI platforms and other receiving
+systems. It includes media, files and links alongside conversations. Workspaces
+remain separate. The components below describe the existing conversation relay;
+they do not establish that media storage, recipient inboxes or universal direct
+platform integrations have been implemented. Self-hosting is an available
+topology, not a required onboarding step for the intended product.
+
+## Required messenger encryption boundary (not implemented)
+
+The revised MVP requires E2EE one-to-one messaging. This is a change to the
+trust model, not a database-encryption setting. The current REST/store/MCP
+conversation path handles readable text and remains a clearly separate legacy
+mode. No encrypted message may fall back to that path on error.
+
+- **Clients:** create and protect device keys, verify recipients, maintain
+  encryption sessions, encrypt before sending and decrypt after receipt.
+  Search, previews, redaction, context selection and attachment thumbnails run
+  locally for encrypted chats. Persist session changes and outgoing messages
+  atomically as required by the selected protocol, including crash recovery.
+- **Delivery service:** authenticates people/devices, distributes public key
+  material and queues opaque envelopes for authorized recipients. It cannot
+  possess plaintext content or content-decryption keys. Public-key distribution
+  alone does not establish trust: identity verification and visible key changes
+  must prevent silent recipient substitution.
+- **Media storage:** stores encrypted bytes under opaque identifiers. A fresh
+  attachment key and its authenticated descriptor travel inside the encrypted
+  message, never in server logs, public URLs or unencrypted metadata. Original
+  filenames, prompts and thumbnails are encrypted too. Use the chosen SDK's
+  supported attachment construction; do not invent chunk encryption.
+- **Devices and recovery:** use platform-backed protection for native device
+  secrets and a reviewed browser key-store design. The existing localStorage
+  relay credential mechanism is not a private-key store. Device addition,
+  revocation and history transfer need explicit semantics. Do not implement
+  server-readable key escrow or claim password reset can restore encrypted
+  history. A user-held recovery secret or trusted device can support recovery
+  only through a separately tested encrypted-backup flow.
+- **AI/system receivers:** content leaves the human conversation only after an
+  explicit selection and destination confirmation on an authorized client.
+  The selected AI service can read what it receives. A compatible system can
+  be an identified encryption endpoint; other integrations are explicit
+  client exports, not hidden server-side decryptors. MCP has no automatic
+  access to encrypted history.
+- **Limits:** the server can still observe some recipient/device identifiers,
+  connection information, timestamps and ciphertext sizes. Minimize retention
+  and disclose this metadata. E2EE does not protect an unlocked compromised
+  device, prevent recipients copying content, or retract downloaded plaintext.
+  A compromised web delivery origin can replace client code; assess this trust
+  boundary before making claims equivalent to a signed native application.
+
+Use a maintained, reviewed protocol implementation with authenticated key
+agreement, message authentication, forward secrecy and documented recovery
+after compromise. A generic AES helper alone is not a messaging protocol.
+Validate the exact native and browser runtimes before committing to an SDK;
+the current Expo app has no such SDK or native binding installed.
+
+Protocol references: [Signal Double Ratchet](https://signal.org/docs/specifications/doubleratchet/)
+and [Sesame multi-device sessions](https://signal.org/docs/specifications/sesame/).
+These are references, not an SDK selection or claim of Signal compatibility.
+[libsignal](https://github.com/signalapp/libsignal) explicitly does not support
+third-party use; do not assume its Node package works in an Expo/browser client.
+The user has authorized required encryption dependencies and native builds.
+SDK licensing and platform support still require validation before integration.
+Existing relay checks are regression
+evidence only; the E2EE acceptance criteria are in ROADMAP.md.
+
 ## Five components, three surfaces
 
 The REST API is the product boundary. REST, MCP over stdio, and stateless

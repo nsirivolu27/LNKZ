@@ -1,111 +1,160 @@
 # LNKZ roadmap
 
-## What the MVP proves
+## MVP: an end-to-end encrypted messenger for AI content
 
-One path, walked end to end:
+LNKZ lets someone take AI-created content and its relevant context from a source
+platform and share it with a receiver: another person, an app, an AI platform,
+or another receiving system. Conversation handoffs are one supported content
+flow within this product, not the limit of the product.
 
-1. You have a conversation with a model.
-2. You hand it to another person.
-3. They pick it up on their own instance and carry it forward.
-4. The chain shows where it came from, and who continued it.
+**Product promise:** create anywhere, share privately through LNKZ, receive and
+continue where it is useful. LNKZ is a messenger, with end-to-end encrypted
+one-to-one conversations as the first release, not a public file-sharing portal.
 
-That is the product. Everything else is in service of it.
+Messages, AI context and attachments must be encrypted on the sending device
+and decrypted only at authorized receiving endpoints. The LNKZ delivery service
+must not hold content-decryption keys. The current relay is not E2EE; this is a
+new implementation requirement, not a description of existing protection.
 
-Extracting decisions and fitting a context packet inside a token budget are
-features of step 3, not the thesis. They matter because the person on the other
-end should receive what was settled rather than forty thousand tokens of
-transcript, but a relay that only compressed context and never left the machine
-would not be this product.
+This is the revised MVP definition, not a claim that every capability below is
+implemented. ARCHITECTURE.md describes the current implementation.
 
-## Topology: each person runs their own instance
+## The sharing flow
 
-LNKZ is federated by decision, not by omission. Conversations move between
-instances as copies. There is no central server, no account to create, and no
-shared tenancy to reason about.
+1. **Capture:** paste text or a conversation, upload an image, video, audio clip,
+   document or other supported file, or attach a source link. A supported
+   connector may import directly from the source platform.
+2. **Review:** see exactly what will be sent. Select content and optionally add
+   the source platform, prompt, relevant conversation, notes and attribution.
+   Do not infer or fabricate metadata that the source does not provide.
+3. **Choose a receiver:** share privately with a person, or explicitly send to a
+   supported application/platform/system destination. The sender's platform
+   credentials are never part of the shared content.
+4. **Receive:** the recipient previews the share, accepts or downloads the
+   permitted content, and can reply or carry it into a compatible tool.
+5. **Continue and return:** new messages or generated results can be shared back
+   with their relationship to the original intact. Preserve the original rather
+   than silently replacing it.
 
-This is what makes the rest of the scope small:
+Ordinary messages and files work without an AI provider account. Human chat is
+one receiver experience; receiving systems do not have to behave like people
+or participate in a chat.
 
-- **No accounts.** Your instance is yours. The API key is a deployment
-  credential, not a user identity.
-- **No invites, roles or permissions.** A handoff link is the entire
-  authorization model, and it expires.
-- **No shared workspace.** A workspace is your instance. `workspace_id` and the
-  row-level security around it stay as isolation plumbing for anyone hosting for
-  a small group, and are not a product surface.
-- **Pull, never push.** The recipient fetches; nothing accepts unsolicited
-  writes from strangers. No inbound endpoint, no addressing scheme, no delivery
-  retries, and it works from behind any firewall.
+Encrypted previews are generated on the recipient's device after decryption.
+Keep message titles, filenames, prompts, source URLs and thumbnails inside the
+encrypted payload. Inbox/Chats, contacts, a composer and device verification are
+the primary user experience. Existing plaintext handoff endpoints are a separate
+legacy mode, never a silent fallback when encryption fails.
 
-Collaboration here is asynchronous and symmetric: you send a link, they import
-it, and if they want to send work back they mint a link of their own. Two people
-end up with two conversations joined by lineage rather than one conversation
-with two editors. That is a real limitation and an accepted one, because live
-co-editing is a different product and would drag accounts, presence and conflict
-resolution in behind it.
+## What universal means
 
-## Three products, in order
+Text, file uploads, links and downloadable exports provide the baseline across
+platforms. Direct import, delivery, generation and editable-project transfer
+require explicitly supported integrations and destination capabilities.
 
-Each depends on the one before it, and none begins before its predecessor
-passes its gate. [ARCHITECTURE.md](ARCHITECTURE.md#repository-boundary) owns
-where the code lives.
+A link-only share must be labeled as a link: it is not a stored copy, and the
+receiver may need access to its source. A video file can be portable even when
+its source platform's editable project is not. Preserve unknown file types as
+attachments within documented size/type limits rather than promising previews
+or execution for every format.
 
-1. **LNKZ**, the relay. Moving a conversation between people, devices and
-   models with its origin intact. This repository. The gate is the journey
-   above, walked end to end against two real relay processes: `pnpm build`
-   then `pnpm verify:journey`, which CI runs on every change.
-2. **lnkz-mcp**, the adapter. A configurable MCP server pointed at a relay
-   someone else is hosting. Its gate is a model client completing the same
-   journey through MCP tools rather than REST.
-3. **The marketplace**. Distribution for configuration bundles that aim an MCP
-   server at one kind of work. Described in [MARKETPLACE.md](MARKETPLACE.md),
-   not scheduled, and deliberately not scaffolded here.
+Show which action actually happened: copied, link created, downloaded, accepted,
+or delivery confirmed by an integration. Opening a platform or copying content
+is not evidence that the destination received it or continued a model session.
+Sending data to an external AI service requires the user's explicit choice.
+An AI provider receiving readable content becomes a disclosed recipient; E2EE
+between people does not make that provider unable to read what is sent to it.
+A system that cannot participate in the encryption protocol receives only an
+explicit client-side export. Do not label that export as encrypted delivery to
+the destination. LNKZ servers and Magentic must not transparently decrypt chats.
 
-Nothing is added to this repository in anticipation of the later two. A hook
-built for a product two gates away is a guess about requirements nobody has
-collected yet.
+## MVP acceptance gate
 
-## Before a public demonstration
+Demonstrate these workflows through the product UI and its real backend:
 
-- Validate a hosted instance, its persistent storage and its smoke test.
-- Separate readiness from liveness, drain shutdowns, and make logs safe to collect.
-- Make migration and backup commands work from the built production artifact.
-- Record a repeatable save, handoff, import and continuation demonstration.
+- Two separately authenticated people establish a private chat, verify their
+  devices and exchange encrypted messages, including while one is offline.
+- Inspect requests, database/object storage, logs and backups: no message text,
+  media plaintext or content-decryption keys reach the LNKZ service. Document
+  the routing, timing and size metadata the service can still observe.
+- Tampered ciphertext, replayed messages and unauthorized recipients fail
+  safely. Device/key changes require verification; no silent key replacement
+  or plaintext downgrade is allowed.
+- Two people on separate devices exchange text, a conversation, an image and a
+  generated video. Audio and documents can be shared as attachments; supported
+  previews are identified, and unsupported previews offer a download.
+- A recipient can receive a private share without the sender's relay API key or
+  source-platform credentials. Routine use does not require running a server.
+- The sender reviews content and optional AI context before sharing. The
+  recipient sees the available provenance, including when it is unverified.
+- A recipient downloads or exports content for another AI platform and returns a
+  result linked to its source. Verify one explicitly supported system receiver
+  end to end; name the integration actually exercised.
+- Access control covers both metadata and attachment bytes. Expired/revoked
+  shares deny future access, and concurrent requests respect use limits.
+  Revocation cannot retract a copy already downloaded by a recipient.
+- Content and history survive refresh and restart. Interrupted uploads and
+  failed deliveries expose a clear outcome without reporting false success or
+  silently duplicating a send.
+- Key storage, device linking/revocation, session persistence and recovery are
+  exercised on the supported clients. Account-password reset alone cannot
+  decrypt history. Define and test the retained-history policy for new devices.
 
-## Transfer completion
+The existing two-relay conversation journey remains a regression gate. Passing
+it alone does not establish media sharing, person-to-person messaging, hosted
+onboarding, or delivery to arbitrary systems.
 
-The crossing works and is asserted end to end. What remains is trust in it.
+## Build order
 
-- **Instance identity.** `lineage.originInstance` is currently whatever the URL
-  said. A recipient cannot tell whether a packet came from the instance it
-  names. An Ed25519 keypair per instance, a public key at
-  `/.well-known/lnkz.json`, signatures over a canonical packet serialization,
-  and verification recorded in lineage. An unverifiable packet is marked, not
-  discarded: the operator decides. This is the next thing to build.
-- **A recognizable name for the far instance**, from its published identity
-  rather than a bare origin URL.
-- Make the SQLite-to-Postgres migration an accessible, verified command.
-- Preserve audit actors consistently across both stores.
+1. **Encryption and identity foundation:** select a maintained messaging protocol
+   implementation after checking license, supported runtimes, maintenance and
+   interoperability. Prove a two-device session, device verification, offline
+   delivery and private-key storage. Do not design a custom ratchet. Required
+   encryption dependencies and native builds have been authorized by the user.
+2. **Encrypted one-to-one messenger:** implement contacts, Inbox/Chats, compose,
+   receive, replies and client-side conversation import/export. The delivery
+   backend authenticates recipients and stores opaque encrypted envelopes;
+   private-message search and context preparation run on the client.
+3. **Encrypted attachments:** support images, video, audio and documents with
+   device-side encryption, authenticated downloads and encrypted descriptors.
+   Specify upload limits, interruption recovery and retention. Reuse existing
+   conversation formats inside encrypted payloads, not plaintext store rows.
+4. **System receiver:** implement one bounded destination adapter through an
+   explicit contract, with scoped authorization and honest delivery results.
+   Keep copy/download/link fallbacks available for other platforms.
+5. **Acceptance and operations:** complete the workflows above, recovery tests,
+   persistence, backups, and a physical two-device check before claiming the
+   revised MVP is ready.
 
-## Optional enrichment
+Encryption identities and device verification are required for the first gate.
+Additional source-platform provenance and optional enrichment remain follow-on
+work. Transporting AI output does not require the relay to call a model, train
+one, or execute uploaded content. Groups and live calls are outside this MVP.
 
-A model-powered layer over your own history, described in
-[ENRICHMENT.md](ENRICHMENT.md) and not built. It is a separate client of the
-REST API rather than part of `intel/`, because the deterministic analysis is
-what makes conflicts reproducible, packet claims traceable and conversations
-local, and a model in that path costs all three at once. Retrieval first, since
-it has a right answer to check against; the longitudinal view second.
+## Current foundation and gaps
 
-Sequenced after instance identity. Enrichment is additive and reversible;
-identity is a foundation.
+The current implementation provides text conversation import/export, deterministic
+context packets, expiring handoffs, preview, continuation, lineage, REST, embedded
+MCP, a web console and an Expo client. The two-relay harness exercises conversation
+transfer and return with separate databases/keys and persistence across restart.
 
-## Scope boundaries
+Media storage/upload, a general share envelope, recipient inbox/addressing,
+E2EE sessions, consumer onboarding and verified system delivery are work to implement and
+validate. The self-hosted two-relay setup remains a development/test option; it
+is no longer the required user experience or the definition of the MVP.
 
-The existing LLMM landing page and console now live with the relay in LNKZ.
-The console uses REST; it does not introduce accounts, embeddings, a queue, a
-cache service or a message bus. Text messages and one-parent lineage remain the
-conversation model. Optional future work includes attachment portability,
-claim-level citations, and deliberate connector write-back after the core
-operational path is proven.
+## Separate products and boundaries
 
-[CHANGELOG.md](CHANGELOG.md) records completed changes; [ARCHITECTURE.md](ARCHITECTURE.md)
-describes current implementation rather than future promises.
+LNKZ owns this sharing experience and its relay/mobile/web implementation.
+Workspaces remain a separate product concern; do not add workspace administration,
+team roles, shared project management or workspace orchestration to this MVP.
+Existing backend isolation controls remain intact.
+
+Magentic owns the standalone MCP server and marketplace direction. Preserve the
+existing LNKZ MCP compatibility surfaces and REST boundary. Neither MCP expansion
+nor marketplace publishing/payments is a prerequisite for the LNKZ MVP.
+
+See PRODUCT-SPLIT.md for repository boundaries and MARKETPLACE.md for the separate
+marketplace proposal. No repository/package/environment rename is authorized by
+this scope change. CHANGELOG.md records completed changes; this roadmap records
+intended work.
