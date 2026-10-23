@@ -1,0 +1,182 @@
+[
+  {
+    "id": "a1000001-0000-4000-8000-000000000001",
+    "title": "Choosing the demand forecast model",
+    "summary": "Picked gradient boosting over a seasonal baseline for station-level demand.",
+    "source": { "provider": "chatgpt", "app": "web" },
+    "participants": ["Nihal", "assistant"],
+    "tags": ["meridian", "forecasting", "modeling"],
+    "messages": [
+      { "role": "user", "content": "We have 18 months of trip data across 240 stations. I need hourly demand per station. Gradient boosting on lag features, or a seasonal model?" },
+      { "role": "assistant", "content": "Both are defensible. A seasonal model handles the weekly and daily cycles almost for free, and it is easy to explain to a city transport officer. Gradient boosting on lag features will pick up weather and event effects that a pure seasonal model cannot see, at the cost of interpretability." },
+      { "role": "user", "content": "The weather effect is the whole point. A rainy Tuesday looks nothing like a dry one." },
+      { "role": "assistant", "content": "Then gradient boosting is the better fit. We decided to use gradient boosting on lag and weather features for station-level hourly demand. I will write the feature extraction so lag windows and weather join in one pass." },
+      { "role": "user", "content": "How much data do we need per station before it is worth training?" },
+      { "role": "assistant", "content": "It is still unclear what the minimum is. Stations with under 200 trips per month may need pooling. We need to confirm that against the tail of the distribution before the pilot." }
+    ]
+  },
+  {
+    "id": "a1000002-0000-4000-8000-000000000002",
+    "title": "Where the station data lives",
+    "summary": "Postgres with PostGIS for stations and trips; no separate geo service.",
+    "source": { "provider": "claude", "app": "desktop" },
+    "participants": ["Nihal", "Priya", "assistant"],
+    "tags": ["meridian", "storage", "postgres"],
+    "messages": [
+      { "role": "user", "content": "Priya wants a separate geo service for the station geometry. I think that is one service too many for a team of three." },
+      { "role": "assistant", "content": "What geo operations do you actually need? If it is distance between stations and point-in-polygon for service areas, Postgres with PostGIS covers both without another deployment to run." },
+      { "role": "user", "content": "Distance, service area membership, and nearest-station lookup for the rebalancing van." },
+      { "role": "assistant", "content": "All three are PostGIS primitives. We decided to use Postgres with PostGIS for stations, trips, and service areas, and to skip the separate geo service. I will add the spatial index on the station geometry column in the same migration." },
+      { "role": "user", "content": "Priya's worry is that the forecast job and the API will contend on the same database." },
+      { "role": "assistant", "content": "That is a real risk at scale but not at 240 stations. A read replica solves it later without changing the schema. Follow up on this once the pilot is running and you have real query load to measure." }
+    ]
+  },
+  {
+    "id": "a1000003-0000-4000-8000-000000000003",
+    "title": "Backing out of gradient boosting",
+    "summary": "Reversed the model decision after the pilot data came in thinner than expected.",
+    "source": { "provider": "chatgpt", "app": "web" },
+    "participants": ["Nihal", "Marcus", "assistant"],
+    "tags": ["meridian", "forecasting", "modeling"],
+    "messages": [
+      { "role": "user", "content": "The gradient boosting model is overfitting badly. Half our stations have under 200 trips a month and the tree just memorizes them." },
+      { "role": "assistant", "content": "That matches the open question from the earlier decision. With that much of the distribution in the tail, a high-variance model is the wrong tool. What does the error look like on the busy stations?" },
+      { "role": "user", "content": "Good on the top 40 stations. Terrible everywhere else. Marcus wants to ship something for the pilot in three weeks." },
+      { "role": "assistant", "content": "Then take the simpler model for the pilot and revisit. We decided to use a seasonal ARIMA baseline for all stations in the pilot, and to drop gradient boosting until there is enough per-station data to support it. I will keep the feature extraction, since a later model will want it." },
+      { "role": "user", "content": "Does that lose the weather effect entirely?" },
+      { "role": "assistant", "content": "Mostly, yes. You can add a rainfall regressor to the ARIMA and recover some of it. That is unresolved until someone measures whether the regressor helps on the thin stations or just adds noise." }
+    ]
+  },
+  {
+    "id": "a1000004-0000-4000-8000-000000000004",
+    "title": "Standup notes, Tuesday",
+    "summary": "Van routing blocked on the depot data; dashboard API started.",
+    "source": { "provider": "chatgpt", "app": "web" },
+    "participants": ["Nihal", "assistant"],
+    "tags": ["meridian", "standup"],
+    "messages": [
+      { "role": "user", "content": "Write up Tuesday standup. Priya finished the PostGIS migration and the spatial index. Marcus started the dashboard API and got the station list endpoint working. I am blocked on van routing because the depot locations are not in the dataset. We agreed to ask the city for the depot file this week." },
+      { "role": "assistant", "content": "Tuesday standup. Priya completed the PostGIS migration and added the spatial index on station geometry. Marcus began the dashboard API and has the station list endpoint returning data. Nihal is blocked on van routing: the depot locations are missing from the dataset. Action: we agreed to ask the city for the depot file this week. Next step is unblocking routing once that file arrives." }
+    ]
+  },
+  {
+    "id": "a1000005-0000-4000-8000-000000000005",
+    "title": "Tuesday standup recap",
+    "summary": "Van routing blocked on depot data; dashboard API underway.",
+    "source": { "provider": "claude", "app": "desktop" },
+    "participants": ["Nihal", "assistant"],
+    "tags": ["meridian", "standup"],
+    "messages": [
+      { "role": "user", "content": "Summarize Tuesday standup for me. Priya finished the PostGIS migration and the spatial index. Marcus started the dashboard API and got the station list endpoint working. I am blocked on van routing because the depot locations are not in the dataset. We agreed to ask the city for the depot file this week." },
+      { "role": "assistant", "content": "Tuesday standup. Priya completed the PostGIS migration and added a spatial index on the station geometry. Marcus started the dashboard API and the station list endpoint is returning data. Nihal is blocked on van routing because depot locations are missing from the dataset. Action: we agreed to ask the city for the depot file this week. Next step is to unblock routing when the file arrives." }
+    ]
+  },
+  {
+    "id": "a1000006-0000-4000-8000-000000000006",
+    "title": "Rebalancing van routing, first pass",
+    "summary": "Framed van routing as capacitated VRP with time windows.",
+    "source": { "provider": "chatgpt", "app": "web" },
+    "participants": ["Nihal", "assistant"],
+    "tags": ["meridian", "routing", "operations"],
+    "messages": [
+      { "role": "user", "content": "One van, 20 bike capacity, six hour shift. It needs to move bikes from full stations to empty ones based on the forecast. Where do I start?" },
+      { "role": "assistant", "content": "This is a capacitated vehicle routing problem with time windows. The forecast gives you the surplus and deficit per station per hour, which becomes the demand vector. We decided to model it as a capacitated VRP with time windows rather than a greedy nearest-deficit heuristic, because the greedy version strands the van at the edge of the network late in the shift." },
+      { "role": "user", "content": "Is an exact solver realistic at 240 stations?" },
+      { "role": "assistant", "content": "Not for the full set. In practice you only route to the 20 or 30 stations with meaningful imbalance, which is small enough for OR-Tools to solve in seconds. I will sketch the objective and the constraint set so it can be handed to whoever implements it." }
+    ]
+  },
+  {
+    "id": "a1000007-0000-4000-8000-000000000007",
+    "title": "Van routing, picked up in Claude",
+    "summary": "Continued the VRP work; settled the objective function.",
+    "source": { "provider": "claude", "app": "desktop" },
+    "participants": ["Nihal", "assistant"],
+    "tags": ["meridian", "routing", "operations", "continuation"],
+    "lineage": {
+      "parentId": "a1000006-0000-4000-8000-000000000006",
+      "rootId": "a1000006-0000-4000-8000-000000000006",
+      "continuedBy": "claude"
+    },
+    "messages": [
+      { "role": "user", "content": "Continuing from the routing conversation. The decision was a capacitated VRP with time windows, restricted to stations with meaningful imbalance. What should the objective actually minimize?" },
+      { "role": "assistant", "content": "Two candidates. Minimize total distance, which is what a logistics solver does by default, or minimize expected unmet demand, which is what the city actually cares about. They diverge: the shortest route often skips a far station that would have stranded twenty riders." },
+      { "role": "user", "content": "The city measures us on failed rentals, not fuel." },
+      { "role": "assistant", "content": "Then optimize what they measure. We decided to minimize expected unmet demand over the shift, with distance as a soft penalty rather than the objective. I will write the cost function so the distance weight is a single tunable parameter." }
+    ]
+  },
+  {
+    "id": "a1000008-0000-4000-8000-000000000008",
+    "title": "Van routing, handed to Gemini for the solver",
+    "summary": "Third leg of the routing chain; chose OR-Tools and fixed the time discretization.",
+    "source": { "provider": "gemini", "app": "web" },
+    "participants": ["Nihal", "assistant"],
+    "tags": ["meridian", "routing", "operations", "continuation"],
+    "lineage": {
+      "parentId": "a1000007-0000-4000-8000-000000000007",
+      "rootId": "a1000006-0000-4000-8000-000000000006",
+      "continuedBy": "gemini"
+    },
+    "messages": [
+      { "role": "user", "content": "Third stop for this thread. Capacitated VRP with time windows, objective is expected unmet demand with distance as a soft penalty. I need the solver choice and the time discretization." },
+      { "role": "assistant", "content": "OR-Tools handles capacitated VRP with time windows directly and is the least work from here. The discretization matters more than the solver: at 15 minute buckets the problem is large and the forecast is not that precise. We decided to use OR-Tools with 30 minute buckets over a six hour shift, which is 12 buckets and well within a few seconds of solve time." },
+      { "role": "user", "content": "What happens when the van falls behind schedule?" },
+      { "role": "assistant", "content": "That is an open question. Re-solving mid-shift from the van's actual position is the obvious answer, but nobody has decided who triggers it or how the driver receives the new route. It needs confirmation with the operations team before the pilot." }
+    ]
+  },
+  {
+    "id": "a1000009-0000-4000-8000-000000000009",
+    "title": "Wiring up the weather API",
+    "summary": "Hourly forecast pull, cached per city, keyed on station clusters.",
+    "source": { "provider": "chatgpt", "app": "web" },
+    "participants": ["Marcus", "assistant"],
+    "tags": ["meridian", "weather", "integration"],
+    "messages": [
+      { "role": "user", "content": "Setting up the weather pull. Here is what I have so far, the key is WEATHER_API_KEY=sk-test-4eC39HqLyjWDarjtT1zdp7dc and it goes in the query string. Is that going to work?" },
+      { "role": "assistant", "content": "Do not put a key in a query string. It ends up in access logs, proxy logs, and browser history. Send it as a header, and rotate that one now that it has been pasted into a chat window. For the pull itself: you do not need per-station weather at 240 stations in one city. We decided to fetch one hourly forecast per city and join it to every station, which is 24 requests a day instead of 5760." },
+      { "role": "user", "content": "Some cities are big enough that the north end and the south end genuinely differ." },
+      { "role": "assistant", "content": "Then cluster stations by distance and fetch one forecast per cluster. Three or four clusters covers a city the size of ours. I will make the cluster count a config value so it can go up without a code change." }
+    ]
+  },
+  {
+    "id": "a100000a-0000-4000-8000-00000000000a",
+    "title": "Open questions before the pilot",
+    "summary": "Everything still unsettled two weeks out.",
+    "source": { "provider": "claude", "app": "desktop" },
+    "participants": ["Nihal", "Priya", "Marcus", "assistant"],
+    "tags": ["meridian", "pilot", "planning"],
+    "messages": [
+      { "role": "user", "content": "Two weeks to the pilot. What is still open?" },
+      { "role": "assistant", "content": "From what has been discussed: the minimum trip volume per station for a usable forecast is still unclear. Whether a rainfall regressor helps the thin stations is unresolved. Who triggers a mid-shift re-solve when the van falls behind, and how the driver receives the new route, needs confirmation with operations. The depot file from the city has not arrived, which still blocks routing end to end." },
+      { "role": "user", "content": "Which of those actually blocks the pilot?" },
+      { "role": "assistant", "content": "Only the depot file. The rest degrade the pilot without stopping it: a worse forecast on thin stations is still a forecast, and a van that cannot re-solve mid-shift just runs its original route. We need to escalate the depot request this week, because it is the one item with no workaround." }
+    ]
+  },
+  {
+    "id": "a100000b-0000-4000-8000-00000000000b",
+    "title": "API surface for the dashboard",
+    "summary": "Three read endpoints, no write path in the pilot.",
+    "source": { "provider": "chatgpt", "app": "web" },
+    "participants": ["Marcus", "assistant"],
+    "tags": ["meridian", "api", "dashboard"],
+    "messages": [
+      { "role": "user", "content": "The dashboard needs station status, the forecast for the next six hours, and the current van route. Should any of it be writable?" },
+      { "role": "assistant", "content": "Not in the pilot. A write path means auth, audit, and a conversation with the city about who is allowed to override a route. We decided to ship three read endpoints for the pilot and no write path: station status, six hour forecast per station, and the current van route." },
+      { "role": "user", "content": "How fresh does the forecast endpoint need to be?" },
+      { "role": "assistant", "content": "The model runs hourly, so anything under an hour of staleness is free. Cache it for 10 minutes and serve from Postgres. I will add the cache header so the dashboard does not poll harder than the data changes." }
+    ]
+  },
+  {
+    "id": "a100000c-0000-4000-8000-00000000000c",
+    "title": "What the hosted forecast job costs",
+    "summary": "Hourly job sized and priced for the pilot.",
+    "source": { "provider": "gemini", "app": "web" },
+    "participants": ["Nihal", "assistant"],
+    "tags": ["meridian", "cost", "operations"],
+    "messages": [
+      { "role": "user", "content": "The forecast job runs hourly over 240 stations. What does that cost to host?" },
+      { "role": "assistant", "content": "A seasonal ARIMA over 240 series at 12 buckets takes roughly 90s on a small instance, so 36 minutes of compute a day. On a scheduled container that is a few dollars a month. The database is the larger line item: 18 months of trip data at this volume is around 4 GB before indexes." },
+      { "role": "user", "content": "And if we go back to gradient boosting later?" },
+      { "role": "assistant", "content": "Training is the expensive part, not inference. Retraining weekly on 240 stations is maybe 40 minutes on a CPU instance, which is still small. The plan is to size for the ARIMA pilot now and revisit only if the model changes." }
+    ]
+  }
+]

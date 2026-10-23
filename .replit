@@ -1,0 +1,12 @@
+﻿modules = ["nodejs-20", "python-3.11"]
+run = "pnpm dev"
+
+[env]
+REPLIT_ORIGIN = "https://REPLIT_SLUG.repl.co"
+NEXT_PUBLIC_API_BASE = "https://REPLIT_SLUG.repl.co/api"
+
+[nix]
+channel = "stable-23.11"
+
+[deployment]
+run = ["sh", "-c", "pnpm build && pnpm start"]

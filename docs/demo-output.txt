@@ -1,0 +1,15 @@
+A > Save the twelve-conversation seed corpus
+Saved: Choosing the demand forecast model (chatgpt)
+A > What did we decide about the forecast model?
+  We decided to use a seasonal ARIMA baseline for all stations in the pilot, and to drop gradient boosting until there is enough per-station data to support it.
+  We decided to use gradient boosting on lag and weather features for station-level hourly demand.
+  The plan is to size for the ARIMA pilot now and revisit only if the model changes.
+  We decided to ship three read endpoints for the pilot and no write path: station status, six hour forecast per station, and the current van route.
+  We decided to model it as a capacitated VRP with time windows rather than a greedy nearest-deficit heuristic, because the greedy version strands the van at the edge of the network late in the shift.
+A > Create an expiring, one-use handoff (bearer link kept private)
+B > Import the link from A
+Lineage: originConversationId=a1000001-0000-4000-8000-000000000001
+Lineage: originInstance=http://127.0.0.1:58075
+B > Continue the conversation in another client
+I will compare the seasonal baseline on the pilot stations before we revisit gradient boosting.
+Done: the context and its origin are now stored on B.
