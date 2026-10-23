@@ -1,0 +1,23 @@
+{
+  "name": "llmm-web",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build:web": "vite build",
+    "build": "npm run build:web && npm --prefix lnkz-relay run build",
+    "preview": "vite preview",
+    "start": "npm --prefix lnkz-relay run start",
+    "relay:dev": "npm --prefix lnkz-relay run dev",
+    "infra:synth": "infra/node_modules/.bin/cdk synth",
+    "infra:diff": "infra/node_modules/.bin/cdk diff",
+    "test": "npm --prefix lnkz-relay test",
+    "typecheck": "tsc --noEmit && npm --prefix lnkz-relay run typecheck"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vite": "^5.4.11"
+  }
+}

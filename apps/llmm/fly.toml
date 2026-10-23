@@ -1,0 +1,41 @@
+# Deploy: fly launch --no-deploy, then
+#   fly volumes create lnkz_data --size 1
+#   fly secrets set LNKZ_API_KEY=... LNKZ_PUBLIC_BASE_URL=https://<app>.fly.dev ALLOWED_HOSTS=<app>.fly.dev ALLOWED_ORIGINS=https://<app>.fly.dev
+#   fly deploy
+app = "lnkz"
+primary_region = "iad"
+
+[build]
+  dockerfile = "lnkz-relay/Dockerfile"
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "3100"
+  LNKZ_DB_FILE = "/app/data/lnkz.db"
+
+[[mounts]]
+  source = "lnkz_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 3100
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "4s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+    # The check reaches the machine on its private address, so without this the
+    # Host header is an internal IP that ALLOWED_HOSTS rejects and the machine
+    # never reports healthy. Keep this in step with the app name above.
+    [http_service.checks.headers]
+      Host = "lnkz.fly.dev"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

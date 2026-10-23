@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      LNKZ_POSTGRES_MIGRATION_URL: postgresql://lnkz_test:lnkz_test@localhost:5432/lnkz_test
+      LNKZ_POSTGRES_TEST_URL: postgresql://lnkz_app:lnkz_app@localhost:5432/lnkz_test
+      LNKZ_POSTGRES_TEST_ROLE: lnkz_app
+      LNKZ_POSTGRES_UNSAFE_OWNER_URL: postgresql://lnkz_test:lnkz_test@localhost:5432/lnkz_test
+      LNKZ_POSTGRES_BYPASS_URL: postgresql://lnkz_bypass:lnkz_bypass@localhost:5432/lnkz_test
+      LNKZ_DATABASE_APP_ROLE: lnkz_app
+      DATABASE_SSL: "false"
+      EXPO_PUBLIC_DOMAIN: example.invalid
+      REPLIT_DEV_DOMAIN: example.invalid
+      REPL_ID: ci
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: lnkz_test
+          POSTGRES_USER: lnkz_test
+          POSTGRES_PASSWORD: lnkz_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lnkz_test -d lnkz_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable pinned pnpm
+        run: corepack enable
+      - name: Install
+        run: corepack pnpm install --frozen-lockfile
+      - name: Create restricted PostgreSQL test roles
+        run: |
+          PGPASSWORD=lnkz_test psql "$LNKZ_POSTGRES_MIGRATION_URL" \
+            --command "create role lnkz_app login password 'lnkz_app' nosuperuser nocreatedb nocreaterole noreplication nobypassrls"
+          PGPASSWORD=lnkz_test psql "$LNKZ_POSTGRES_MIGRATION_URL" \
+            --command "create role lnkz_bypass login password 'lnkz_bypass' nosuperuser nocreatedb nocreaterole noreplication bypassrls"
+      - run: corepack pnpm typecheck
+      - run: corepack pnpm test
+      - run: corepack pnpm build
+      - run: corepack pnpm build:mobile
+      - run: corepack pnpm verify:web
+      - run: corepack pnpm verify:http
+      - run: corepack pnpm verify:mobile
+      - run: corepack pnpm infra:synth
+      - run: npm --prefix apps/llmm/infra test
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Node 22 image
+        run: docker build -t lnkz:ci apps/lnkz
+      - name: Start and verify the non-root container
+        run: |
+          docker run --detach --name lnkz \
+            --publish 3100:3100 \
+            --env NODE_ENV=production \
+            --env HOST=0.0.0.0 \
+            --env LNKZ_API_KEY=ci-only-placeholder-key \
+            --env LNKZ_PUBLIC_BASE_URL=http://127.0.0.1:3100 \
+            --env ALLOWED_HOSTS=127.0.0.1 \
+            --env ALLOWED_ORIGINS=http://127.0.0.1:3100 \
+            lnkz:ci
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3100/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3100/health
+          test "$(docker inspect --format '{{.Config.User}}' lnkz)" = "lnkz"
+          test "$(docker inspect --format '{{.State.Health.Status}}' lnkz)" != "unhealthy"
+      - name: Container logs
+        if: always()
+        run: docker logs lnkz || true

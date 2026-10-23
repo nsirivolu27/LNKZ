@@ -1,0 +1,9 @@
+- [Artifact static asset paths](artifact-assets.md) — resolve web-dist paths across package-local and workspace-root launch contexts.
+- [MCP TypeScript schema inference](mcp-typescript.md) — keep recursive SDK inference suppressions narrow and preserve strict checking elsewhere.
+- [Backend security baseline](backend-security.md) — keep production fail-closed, browser-hardened, origin-checked, and safe-error defaults while auth evolves.
+- [LNKZ repository split](lnkz-repo.md) — keep the focused relay workflow in LNKZ and the main MCP product in LLMM.
+- [Managed identity boundary](managed-identity-boundary.md) — OIDC sessions must resolve explicit Postgres membership before creating an actor context.
+- [GitHub connector limitations](github-connector.md) — repository reads work, but low-level Git Data writes and hidden workflow paths may be blocked by the proxy.
+- [Claude destination boundary](claude-destination.md) — Anthropic model access is not Claude-owned-space delivery; preserve the expiring link fallback until a managed destination exists.
+- [Expo mobile workflow quirks](expo-mobile-quirks.md) — browser proxy host validation and shared Metro ports can differ from QR/device behavior.
+- [Mobile packet selection](mobile-packet-selection.md) — preserve conversation-level selection without implying unsupported message-ID filtering.

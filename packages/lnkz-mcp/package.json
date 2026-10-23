@@ -1,0 +1,26 @@
+{
+  "name": "lnkz-mcp",
+  "version": "0.2.0",
+  "description": "MCP adapter for the LNKZ conversation relay REST API.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.26.1",
+  "bin": {
+    "lnkz-mcp": "dist/stdio.mjs"
+  },
+  "scripts": {
+    "build": "node ./build.mjs",
+    "start": "node --enable-source-maps ./dist/stdio.mjs",
+    "test": "tsc -p tsconfig.test.json && node --test .testbuild/tests/*.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.25.28"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3"
+  }
+}
