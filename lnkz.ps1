@@ -1,8 +1,7 @@
 # One command per round trip.
 #
-# Claude can read and write every file in this repository but cannot run
-# anything here. This script closes that gap: you run one command, it writes
-# _last-run.txt, and Claude reads that file directly. Nothing needs pasting.
+# Run a local command and capture its output in _last-run.txt for review.
+# The log is ignored by Git and can be read by any development tool.
 #
 #   .\lnkz.ps1 status              what branch, what is dirty, what is ahead
 #   .\lnkz.ps1 check               typecheck and test

@@ -1,5 +1,5 @@
 import { importChatGpt, looksLikeChatGpt } from "./chatgpt.js";
-import { importClaude, looksLikeClaude } from "./claude.js";
+import { importClaude, looksLikeClaude } from "./message-list.js";
 import { importGemini, looksLikeGemini } from "./gemini.js";
 import { importGeneric, looksLikeGeneric } from "./generic.js";
 import { importLnkz, looksLikeLnkz } from "./lnkz.js";
