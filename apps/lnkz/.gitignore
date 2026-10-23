@@ -1,0 +1,32 @@
+node_modules/
+dist/
+.testbuild/
+.data/
+.env
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+
+# Generated, transient, or local only. None of this belongs in the repository.
+_to_delete/
+graphify-out/
+Claude outputs/
+rsna-knee-abnormality-detection/
+*.log
+*.bundle
+*.tgz
+*.patch
+*.diff
+*.tsbuildinfo
+.env.*
+!.env.example
+coverage/
+.cache/
+.graphify_cache/
+tmp/
+scratch/
+mcp-server/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

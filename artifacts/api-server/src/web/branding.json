@@ -1,0 +1,10 @@
+{
+  "productName": "LLMM",
+  "legacyName": "LNKZ",
+  "descriptor": "Large Language Model Mover",
+  "apiKeyLabel": "API key",
+  "apiKeyPlaceholder": "LLMM_API_KEY (leave blank if unset)",
+  "apiCompatibilityLabel": "OpenAI-compatible API key",
+  "apiKeyStorageKey": "llmm.apiKey",
+  "repositoryUrl": "https://github.com/nsirivolu27/LNKZ"
+}

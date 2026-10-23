@@ -1,0 +1,37 @@
+kind = "api"
+previewPath = "/"
+title = "LLMM — Large Language Model Mover"
+version = "1.0.0"
+id = "3B4_FFSkEVBkAeYMFRJ2e"
+
+[[services]]
+localPort = 8080
+name = "LLMM Server"
+paths = ["/"]
+
+[services.development]
+run = "pnpm --filter @workspace/api-server run dev"
+
+[services.development.env]
+LNKZ_WEB_DIST_DIR = "web-dist"
+
+[services.production]
+
+[services.production.build]
+args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
+
+[services.production.build.env]
+NODE_ENV = "production"
+
+[services.production.run]
+# we don't run through pnpm to make startup faster in production
+args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
+
+[services.production.run.env]
+PORT = "8080"
+HOST = "0.0.0.0"
+NODE_ENV = "production"
+LNKZ_WEB_DIST_DIR = "artifacts/api-server/web-dist"
+
+[services.production.health.startup]
+path = "/health"

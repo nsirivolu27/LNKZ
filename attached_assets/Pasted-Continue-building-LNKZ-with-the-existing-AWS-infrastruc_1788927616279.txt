@@ -1,0 +1,161 @@
+Continue building LNKZ with the existing AWS infrastructure and backend architecture treated as the production target. For this task, focus entirely on finishing the Expo mobile application. Do not redesign or replace the AWS infrastructure unless a mobile integration issue requires a small configuration change.
+
+Work directly in the existing repository and implement the application. Do not stop after planning or creating follow-up tasks.
+
+Before changing code:
+
+1. Inspect the Expo application, navigation, components, API client, authentication storage, environment configuration, tests, and backend contracts.
+2. Inspect the existing AWS CDK configuration only to understand the production API URL, authentication requirements, CORS policy, and expected environment variables.
+3. Identify unfinished screens, mock data, placeholder actions, broken navigation, raw error output, and unconnected design components.
+4. Use the existing “LNKZ Field Handoff” design as the visual reference.
+
+The mobile application must provide this complete workflow:
+
+1. Open the application and display a polished onboarding or connection screen.
+2. Enter or load the LNKZ backend URL.
+3. Enter an API key and store it with Expo SecureStore.
+4. Test the connection using a real authenticated request.
+5. Load real account statistics and recent conversations.
+6. Browse and search the conversation library.
+7. Open a conversation and read its messages.
+8. Import a conversation using an existing supported import method.
+9. Select messages or conversation content.
+10. Build a context packet from the selected content.
+11. Create a secure handoff with:
+    - Name or recipient
+    - Expiration
+    - Access scope
+    - Usage limit
+12. Display the generated handoff link.
+13. Copy or share the link using native mobile actions.
+14. View active, expired, and revoked handoffs.
+15. Revoke an active handoff.
+16. View connector and connection status in Settings.
+17. Disconnect safely and remove locally stored credentials.
+
+Use these primary navigation destinations:
+
+- Home
+- Library
+- Import
+- Handoffs
+- Settings
+
+Home:
+
+- Load real values from the existing stats endpoint.
+- Show conversation count, message count, active handoffs, and connected sources.
+- Show recent conversations.
+- Include clear Import Conversation and Create Handoff actions.
+- Remove all hard-coded statistics when connected to the backend.
+
+Library:
+
+- Load real conversations from the backend.
+- Add search, source filters, and refresh behavior.
+- Show title, source, last updated time, message count, and available tags.
+- Add a readable conversation detail view.
+- Support selecting content for a context packet.
+- Preserve the user’s selection when moving into the handoff workflow.
+
+Import:
+
+- Present the import methods already supported by the backend.
+- Validate input before submission.
+- Show upload or import progress.
+- Display a useful result summary with conversation and message counts.
+- Route the user to the imported conversation after success.
+- Show actionable error messages for invalid files, unsupported formats, authorization failures, and network failures.
+
+Handoffs:
+
+- Load handoffs from the real backend.
+- Clearly distinguish active, expired, exhausted, and revoked handoffs.
+- Show expiration, scopes, usage count, usage limit, and creation date.
+- Implement real copy, share, and revoke actions.
+- Confirm successful revocation by refreshing server data.
+- Never generate fake handoff URLs on the client.
+
+Settings:
+
+- Show the configured server URL.
+- Show authenticated connection status.
+- Load connector readiness from the existing connectors endpoint.
+- Retest the connection using the securely stored API key.
+- Allow the user to update the server URL or API key.
+- Include a disconnect action that clears credentials and cached private data.
+
+API integration requirements:
+
+- Centralize all requests in a typed API client.
+- Use the backend’s existing authentication header format.
+- Normalize server URLs and API paths.
+- Add request timeouts.
+- Parse successful and failed responses safely.
+- Convert backend failures into short user-facing messages.
+- Never display raw JSON, HTML error pages, stack traces, host errors, or internal endpoint details.
+- Handle 401, 403, 404, 409, 429, server errors, timeouts, and offline states.
+- Cancel or ignore stale requests when screens unmount.
+- Prevent duplicate imports, handoff creation, and revocation requests.
+- Refresh affected screens after mutations.
+- Keep AWS service names and infrastructure details out of the mobile interface.
+
+Environment support:
+
+- Support a local backend URL during development.
+- Support a Replit development URL.
+- Support the deployed AWS API URL through environment configuration.
+- Do not hard-code a developer-specific hostname.
+- Add a documented Expo public environment variable for the default API URL.
+- Keep secrets and API keys out of public Expo environment variables.
+- Fix the current “Invalid Host” browser-preview failure.
+- The phone preview must render the application interface rather than a backend response.
+
+Design requirements:
+
+- Follow the existing Field Handoff design language.
+- Use an off-white background, dark text, black borders, compact labels, and restrained accent colors.
+- Maintain safe-area spacing and keyboard avoidance.
+- Support narrow phone screens.
+- Provide accessible touch targets and readable text.
+- Add skeletons or progress indicators during requests.
+- Create intentional empty, loading, offline, error, and success states.
+- Keep forms simple and use clear primary actions.
+
+State management:
+
+- Separate authentication, server connection, conversations, imports, context selection, and handoffs.
+- Persist only the settings needed across launches.
+- Store credentials securely.
+- Clear private cached data when disconnecting.
+- Avoid creating a large new state-management dependency unless the repository already uses one.
+
+Verification:
+
+- Run type checking.
+- Run existing mobile and backend tests.
+- Add focused tests for:
+  - Secure credential restoration
+  - Connection validation
+  - Authenticated API requests
+  - Conversation loading and search
+  - Import success and failure
+  - Context selection
+  - Handoff creation
+  - Handoff revocation
+  - Offline and authorization errors
+- Build the Expo web bundle.
+- Start the mobile application in Replit.
+- Manually verify the full import-to-handoff workflow.
+- Confirm that no screen displays raw JSON, placeholder data, a blank page, or “Invalid Host.”
+
+Do not modify the CDK architecture, provision AWS resources, or deploy during this task. The mobile client should become ready to connect to the AWS deployment through configuration once the infrastructure is deployed.
+
+Finish the implementation before reporting. At the end, provide:
+
+1. Screens completed.
+2. Real backend workflows connected.
+3. Files changed.
+4. Tests and build results.
+5. The development and AWS API environment variables required.
+6. Any remaining blocker with the exact failure and the next concrete fix.

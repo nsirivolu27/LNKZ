@@ -1,35 +1,50 @@
-node_modules/
-dist/
-.testbuild/
-.data/
-.env
-*.db
-*.db-shm
-*.db-wal
-.DS_Store
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
-# Generated, transient, or local only. None of this belongs in the repository.
-_to_delete/
-graphify-out/
-Claude outputs/
-rsna-knee-abnormality-detection/
-*.log
-*.bundle
-*.tgz
-*.patch
-*.diff
+# compiled output
+dist
+/artifacts/api-server/dist-test
+tmp
+out-tsc
 *.tsbuildinfo
-.env.*
-!.env.example
-coverage/
+.expo
+.expo-shared
+
+# dependencies
+node_modules
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# misc
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+/typings
+
+# System Files
+.DS_Store
+Thumbs.db
+
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
+
+# Replit
 .cache/
-.graphify_cache/
-tmp/
-scratch/
-mcp-server/
-*.sqlite
-*.sqlite-shm
-*.sqlite-wal
-*.pem
-_last-run.txt
-cdk.out/
+.local/

@@ -1,0 +1,32 @@
+# Two build stages so the runtime image carries no toolchain and no dev dependencies.
+FROM node:22-alpine AS web-build
+WORKDIR /workspace
+COPY package.json package-lock.json index.html console.html tsconfig.json vite.config.ts ./
+COPY src ./src
+RUN npm install --no-audit --no-fund && npm run build:web
+
+FROM node:22-alpine AS server-build
+WORKDIR /workspace/lnkz-relay
+COPY lnkz-relay/package.json lnkz-relay/package-lock.json ./
+RUN npm ci
+COPY lnkz-relay/tsconfig.json ./
+COPY lnkz-relay/src ./src
+RUN npm run build
+
+FROM node:22-alpine AS runtime
+ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
+    PORT=3100 \
+    WEB_DIST_DIR=/app/public \
+    LNKZ_DB_FILE=/app/data/lnkz.db
+WORKDIR /app
+COPY lnkz-relay/package.json lnkz-relay/package-lock.json ./
+RUN npm ci --omit=dev && mkdir -p /app/data && chown -R node:node /app
+COPY --from=server-build /workspace/lnkz-relay/dist ./dist
+COPY --from=server-build /workspace/lnkz-relay/src/store/migrations ./dist/store/migrations
+COPY --from=web-build /workspace/dist ./public
+USER node
+EXPOSE 3100
+HEALTHCHECK --interval=30s --timeout=4s --start-period=8s \
+  CMD wget -q -O - http://127.0.0.1:3100/health || exit 1
+CMD ["node", "dist/server.js"]
