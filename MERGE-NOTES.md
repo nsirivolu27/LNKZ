@@ -1,4 +1,4 @@
-# MVP journey merge notes
+# Resolving the merge of claude/mvp-journey-v9 into feat/mvp-journey
 
 Eight files conflict. Keep both sides in every one of them. The changes are
 additive on both sides, not competing implementations. Do not take `--ours`
