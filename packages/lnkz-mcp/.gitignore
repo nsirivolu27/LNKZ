@@ -1,8 +1,0 @@
-node_modules/
-dist/
-.testbuild/
-.env
-*.db
-*.db-shm
-*.db-wal
-*.log

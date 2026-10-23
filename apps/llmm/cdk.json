@@ -1,4 +1,0 @@
-{
-  "app": "infra/node_modules/.bin/tsx infra/app.ts",
-  "context": {}
-}

@@ -7,7 +7,6 @@
     "rootDir": "src",
     "types": ["node"]
   },
-  "exclude": ["src/web"],
   "include": ["src"],
   "references": [
     {

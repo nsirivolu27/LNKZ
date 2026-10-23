@@ -6,6 +6,5 @@
     "outDir": "dist-test",
     "rootDir": "."
   },
-  "include": ["src/lnkz/**/*.ts", "test/**/*.ts"],
-  "exclude": ["src/web"]
+  "include": ["src/lnkz/**/*.ts", "test/**/*.ts"]
 }
