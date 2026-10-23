@@ -1,1 +1,0 @@
-export const LNKZ_VERSION = "0.2.0";

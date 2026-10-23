@@ -1,7 +1,4 @@
 import express from "express";
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
@@ -518,21 +515,6 @@ if (config.mcp.enabled) {
   }
 }
 
-const moduleDirectory = dirname(fileURLToPath(import.meta.url));
-const configuredWebDist = config.webDistDir ? resolve(config.webDistDir) : undefined;
-const webDist = [
-  configuredWebDist,
-  resolve(process.cwd(), "web-dist"),
-  resolve(moduleDirectory, "..", "web-dist"),
-  resolve(moduleDirectory, "..", "..", "dist"),
-].find((candidate): candidate is string => Boolean(candidate && existsSync(candidate))) ?? "";
-if (existsSync(webDist)) {
-  app.use(express.static(webDist));
-  app.get(/^\/(?!api|mcp|share|health).*/, (_request, response) => {
-    response.sendFile(resolve(webDist, "index.html"));
-  });
-}
-
 app.use((request, response, next) => {
   if (request.path.startsWith("/api/") || request.path === config.mcp.path) {
     response.status(404).json({ error: "Not found." });
@@ -568,7 +550,7 @@ const httpServer = app.listen(port, host, (error?: Error) => {
     process.exitCode = 1;
     return;
   }
-  console.log(`[server] LLMM ${LNKZ_VERSION} listening on ${publicBaseUrl}`);
+  console.log(`[server] LNKZ ${LNKZ_VERSION} listening on ${publicBaseUrl}`);
   if (!process.env.LNKZ_API_KEY?.trim() && !managedAuth) {
     console.warn("[server] LNKZ_API_KEY is not set: the API and MCP endpoint are unauthenticated.");
   }
