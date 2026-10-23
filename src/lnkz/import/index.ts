@@ -4,7 +4,7 @@ import { importGemini, looksLikeGemini } from "./gemini.js";
 import { importGeneric, looksLikeGeneric } from "./generic.js";
 import { importLnkz, looksLikeLnkz } from "./lnkz.js";
 import { importMarkdown } from "./markdown.js";
-import { importOpenAi, looksLikeOpenAi } from "./openai.js";
+import { importOpenAi, looksLikeOpenAi } from "./chat-completions.js";
 import { importPlainText } from "./plain.js";
 import type { ConversationInput } from "../types.js";
 
