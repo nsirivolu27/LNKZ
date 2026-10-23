@@ -380,23 +380,12 @@ export class SqliteConversationStore implements ConversationStore {
     const conversation = await this.get(row.conversation_id);
     if (!conversation) return null;
 
-    // get() yields: another request can redeem or revoke the link while it is
-    // loading. Claim the use conditionally in SQLite, not from the stale row.
-    const claimed = this.db.prepare(`
-      UPDATE handoffs SET uses = uses + 1
-      WHERE id = ? AND revoked_at IS NULL AND expires_at > ? AND uses < max_uses
-      RETURNING uses
-    `).get(row.id, new Date().toISOString()) as { uses: number } | undefined;
-    if (!claimed) {
-      this.recordEventSync({ kind: "handoff.rejected", conversationId: row.conversation_id,
-        handoffId: row.id, detail: { reason: "unavailable" } });
-      return null;
-    }
+    this.db.prepare("UPDATE handoffs SET uses = uses + 1 WHERE id = ?").run(row.id);
     this.recordEventSync({
       kind: "handoff.redeemed",
       conversationId: row.conversation_id,
       handoffId: row.id,
-      detail: { use: claimed.uses, maxUses: row.max_uses },
+      detail: { use: row.uses + 1, maxUses: row.max_uses },
     });
 
     const redacted = row.redact ? redactConversation(conversation, { aggressive: true }) : null;
@@ -410,7 +399,7 @@ export class SqliteConversationStore implements ConversationStore {
       redaction: redacted?.report ?? noRedaction(),
       handoff: {
         id: row.id,
-        usesRemaining: row.max_uses - claimed.uses,
+        usesRemaining: row.max_uses - (row.uses + 1),
         expiresAt: row.expires_at,
         audience: row.audience ?? undefined,
       },
